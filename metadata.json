@@ -1,0 +1,6 @@
+{
+  "name": "Octagon Stand & Bang",
+  "description": "Realistic 3D stand-and-bang UFC striking game with motion-captured skeletal animations, zoned damage, and full controller support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

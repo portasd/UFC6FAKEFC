@@ -1,0 +1,516 @@
+export type Stance = 'orthodox' | 'southpaw';
+
+export type AiArchetype =
+  | 'volumeCombo'
+  | 'counterSniper'
+  | 'pressureBoxer'
+  | 'legKickBrawler';
+
+export interface FighterProfile {
+  id: string;
+  firstName: string;
+  lastName: string;
+  name: string;
+  nickname: string;
+  styleTag: string;
+  weightClass: string;
+  record: string;
+  starRating: number; // e.g. 4.5 or 5
+  isChampion?: boolean;
+  stance: Stance;
+  aiArchetype: AiArchetype;
+  heightScale: number;
+  buildScale: number;
+  reachMeters: number;
+  stats: {
+    power: number; // 75 - 99
+    speed: number; // 75 - 99
+    chin: number; // 75 - 99
+    cardio: number; // 75 - 99
+    kickPower: number; // 75 - 99
+  };
+  appearance: {
+    skinHex: string;
+    hairHex: string;
+    hairStyle: 'fade' | 'buzz' | 'textured' | 'shaved';
+    facialHair: 'none' | 'stubble' | 'goatee' | 'fullBeard';
+    shortsPrimaryHex: string;
+    shortsAccentHex: string;
+    shortsPattern: 'floral' | 'geometric' | 'tribal' | 'stripes' | 'stars';
+    tattooStyle:
+      | 'wings'
+      | 'hollowayFull'
+      | 'chestScript'
+      | 'fullSleeveChest'
+      | 'chestBand'
+      | 'armSleeve'
+      | 'tribalArm'
+      | 'mcgregorChest'
+      | 'poirierFull'
+      | 'oliveiraChest'
+      | 'omalleyChest'
+      | 'minimal';
+    chestHair?: boolean;
+    hasLeftKneeSleeve: boolean;
+    hasRightAnkleWrap: boolean;
+    hasLeftAnkleWrap: boolean;
+    tapeColor: 'red' | 'blue';
+  };
+}
+
+export const UFC_ROSTER: FighterProfile[] = [
+  {
+    id: 'holloway',
+    firstName: 'MAX',
+    lastName: 'HOLLOWAY',
+    name: 'MAX HOLLOWAY',
+    nickname: 'Blessed',
+    styleTag: 'BOXING',
+    weightClass: 'Featherweight · 145 lbs',
+    record: '26-8-0',
+    starRating: 4.5,
+    stance: 'orthodox',
+    aiArchetype: 'volumeCombo',
+    heightScale: 1.0,
+    buildScale: 0.96,
+    reachMeters: 1.75,
+    stats: {
+      power: 88,
+      speed: 96,
+      chin: 98,
+      cardio: 99,
+      kickPower: 86,
+    },
+    appearance: {
+      skinHex: '#c68a63',
+      hairHex: '#181615',
+      hairStyle: 'fade',
+      facialHair: 'stubble',
+      shortsPrimaryHex: '#eceef2',
+      shortsAccentHex: '#c42b2b',
+      shortsPattern: 'floral',
+      tattooStyle: 'hollowayFull',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: false,
+      hasLeftAnkleWrap: false,
+      tapeColor: 'red',
+    },
+  },
+  {
+    id: 'jung',
+    firstName: 'CHAN SUNG',
+    lastName: 'JUNG',
+    name: 'CHAN SUNG JUNG',
+    nickname: 'The Korean Zombie',
+    styleTag: 'BRAWLER',
+    weightClass: 'Featherweight · 145 lbs',
+    record: '17-8-0',
+    starRating: 4.0,
+    stance: 'orthodox',
+    aiArchetype: 'pressureBoxer',
+    heightScale: 0.99,
+    buildScale: 0.98,
+    reachMeters: 1.83,
+    stats: {
+      power: 91,
+      speed: 89,
+      chin: 92,
+      cardio: 91,
+      kickPower: 87,
+    },
+    appearance: {
+      skinHex: '#d5a37e',
+      hairHex: '#121214',
+      hairStyle: 'textured',
+      facialHair: 'none',
+      shortsPrimaryHex: '#16171b',
+      shortsAccentHex: '#e05b24',
+      shortsPattern: 'geometric',
+      tattooStyle: 'minimal',
+      hasLeftKneeSleeve: true,
+      hasRightAnkleWrap: true,
+      hasLeftAnkleWrap: false,
+      tapeColor: 'blue',
+    },
+  },
+  {
+    id: 'jones',
+    firstName: 'JON',
+    lastName: 'JONES',
+    name: 'JON JONES',
+    nickname: 'Look See Do',
+    styleTag: 'MMA',
+    weightClass: 'Heavyweight · 248 lbs',
+    record: '28-1-0',
+    starRating: 5.0,
+    isChampion: true,
+    stance: 'orthodox',
+    aiArchetype: 'counterSniper',
+    heightScale: 1.08,
+    buildScale: 1.06,
+    reachMeters: 2.15,
+    stats: {
+      power: 94,
+      speed: 90,
+      chin: 97,
+      cardio: 95,
+      kickPower: 96,
+    },
+    appearance: {
+      skinHex: '#8c5a3c',
+      hairHex: '#111111',
+      hairStyle: 'shaved',
+      facialHair: 'fullBeard',
+      shortsPrimaryHex: '#232429',
+      shortsAccentHex: '#d92626',
+      shortsPattern: 'stripes',
+      tattooStyle: 'chestScript',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: true,
+      hasLeftAnkleWrap: true,
+      tapeColor: 'red',
+    },
+  },
+  {
+    id: 'aspinall',
+    firstName: 'TOM',
+    lastName: 'ASPINALL',
+    name: 'TOM ASPINALL',
+    nickname: 'Heavyweight',
+    styleTag: 'MMA',
+    weightClass: 'Heavyweight · 251 lbs',
+    record: '15-3-0',
+    starRating: 5.0,
+    isChampion: true,
+    stance: 'orthodox',
+    aiArchetype: 'pressureBoxer',
+    heightScale: 1.09,
+    buildScale: 1.1,
+    reachMeters: 1.98,
+    stats: {
+      power: 98,
+      speed: 94,
+      chin: 92,
+      cardio: 90,
+      kickPower: 92,
+    },
+    appearance: {
+      skinHex: '#d7a88e',
+      hairHex: '#1f1b18',
+      hairStyle: 'fade',
+      facialHair: 'goatee',
+      shortsPrimaryHex: '#1c2b4a',
+      shortsAccentHex: '#d9a938',
+      shortsPattern: 'geometric',
+      tattooStyle: 'fullSleeveChest',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: false,
+      hasLeftAnkleWrap: false,
+      tapeColor: 'blue',
+    },
+  },
+  {
+    id: 'pereira',
+    firstName: 'ALEX',
+    lastName: 'PEREIRA',
+    name: 'ALEX PEREIRA',
+    nickname: 'Poatan',
+    styleTag: 'KICKBOXING',
+    weightClass: 'Light Heavyweight · 205 lbs',
+    record: '12-2-0',
+    starRating: 5.0,
+    isChampion: true,
+    stance: 'orthodox',
+    aiArchetype: 'legKickBrawler',
+    heightScale: 1.07,
+    buildScale: 1.07,
+    reachMeters: 2.0,
+    stats: {
+      power: 99,
+      speed: 86,
+      chin: 90,
+      cardio: 88,
+      kickPower: 98,
+    },
+    appearance: {
+      skinHex: '#b47a54',
+      hairHex: '#151515',
+      hairStyle: 'shaved',
+      facialHair: 'stubble',
+      shortsPrimaryHex: '#17181c',
+      shortsAccentHex: '#d4a64a',
+      shortsPattern: 'tribal',
+      tattooStyle: 'tribalArm',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: true,
+      hasLeftAnkleWrap: true,
+      tapeColor: 'red',
+    },
+  },
+  {
+    id: 'topuria',
+    firstName: 'ILIA',
+    lastName: 'TOPURIA',
+    name: 'ILIA TOPURIA',
+    nickname: 'El Matador',
+    styleTag: 'BOXING',
+    weightClass: 'Featherweight · 145 lbs',
+    record: '16-0-0',
+    starRating: 5.0,
+    isChampion: true,
+    stance: 'orthodox',
+    aiArchetype: 'pressureBoxer',
+    heightScale: 0.97,
+    buildScale: 1.03,
+    reachMeters: 1.75,
+    stats: {
+      power: 97,
+      speed: 94,
+      chin: 93,
+      cardio: 92,
+      kickPower: 85,
+    },
+    appearance: {
+      skinHex: '#cfa080',
+      hairHex: '#231b15',
+      hairStyle: 'fade',
+      facialHair: 'fullBeard',
+      shortsPrimaryHex: '#7a151d',
+      shortsAccentHex: '#d9b152',
+      shortsPattern: 'stripes',
+      tattooStyle: 'chestBand',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: false,
+      hasLeftAnkleWrap: false,
+      tapeColor: 'red',
+    },
+  },
+  {
+    id: 'gaethje',
+    firstName: 'JUSTIN',
+    lastName: 'GAETHJE',
+    name: 'JUSTIN GAETHJE',
+    nickname: 'The Highlight',
+    styleTag: 'BRAWLER',
+    weightClass: 'Lightweight · 155 lbs',
+    record: '26-5-0',
+    starRating: 4.5,
+    stance: 'orthodox',
+    aiArchetype: 'legKickBrawler',
+    heightScale: 1.01,
+    buildScale: 1.02,
+    reachMeters: 1.78,
+    stats: {
+      power: 96,
+      speed: 89,
+      chin: 92,
+      cardio: 91,
+      kickPower: 96,
+    },
+    appearance: {
+      skinHex: '#cf9673',
+      hairHex: '#332419',
+      hairStyle: 'buzz',
+      facialHair: 'stubble',
+      shortsPrimaryHex: '#18243b',
+      shortsAccentHex: '#d9483b',
+      shortsPattern: 'stars',
+      tattooStyle: 'armSleeve',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: true,
+      hasLeftAnkleWrap: false,
+      tapeColor: 'blue',
+    },
+  },
+  {
+    id: 'adesanya',
+    firstName: 'ISRAEL',
+    lastName: 'ADESANYA',
+    name: 'ISRAEL ADESANYA',
+    nickname: 'The Last Stylebender',
+    styleTag: 'KICKBOXING',
+    weightClass: 'Middleweight · 185 lbs',
+    record: '24-5-0',
+    starRating: 4.5,
+    stance: 'southpaw',
+    aiArchetype: 'counterSniper',
+    heightScale: 1.06,
+    buildScale: 0.95,
+    reachMeters: 2.03,
+    stats: {
+      power: 90,
+      speed: 97,
+      chin: 88,
+      cardio: 94,
+      kickPower: 96,
+    },
+    appearance: {
+      skinHex: '#63412f',
+      hairHex: '#111113',
+      hairStyle: 'fade',
+      facialHair: 'goatee',
+      shortsPrimaryHex: '#112a24',
+      shortsAccentHex: '#25b884',
+      shortsPattern: 'geometric',
+      tattooStyle: 'chestBand',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: false,
+      hasLeftAnkleWrap: true,
+      tapeColor: 'blue',
+    },
+  },
+  {
+    id: 'mcgregor',
+    firstName: 'CONOR',
+    lastName: 'MCGREGOR',
+    name: 'CONOR MCGREGOR',
+    nickname: 'The Notorious',
+    styleTag: 'BOXING',
+    weightClass: 'Lightweight · 155 lbs',
+    record: '22-6-0',
+    starRating: 4.5,
+    stance: 'southpaw',
+    aiArchetype: 'counterSniper',
+    heightScale: 0.98,
+    buildScale: 1.0,
+    reachMeters: 1.88,
+    stats: {
+      power: 96,
+      speed: 93,
+      chin: 88,
+      cardio: 82,
+      kickPower: 91,
+    },
+    appearance: {
+      skinHex: '#d5a387',
+      hairHex: '#4f3524',
+      hairStyle: 'buzz',
+      facialHair: 'fullBeard',
+      shortsPrimaryHex: '#166b3a',
+      shortsAccentHex: '#d9b152',
+      shortsPattern: 'stripes',
+      tattooStyle: 'mcgregorChest',
+      chestHair: true,
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: false,
+      hasLeftAnkleWrap: false,
+      tapeColor: 'red',
+    },
+  },
+  {
+    id: 'poirier',
+    firstName: 'DUSTIN',
+    lastName: 'POIRIER',
+    name: 'DUSTIN POIRIER',
+    nickname: 'The Diamond',
+    styleTag: 'BOXING',
+    weightClass: 'Lightweight · 155 lbs',
+    record: '30-9-0',
+    starRating: 4.5,
+    stance: 'southpaw',
+    aiArchetype: 'pressureBoxer',
+    heightScale: 0.99,
+    buildScale: 1.01,
+    reachMeters: 1.83,
+    stats: {
+      power: 94,
+      speed: 92,
+      chin: 91,
+      cardio: 93,
+      kickPower: 86,
+    },
+    appearance: {
+      skinHex: '#cfa081',
+      hairHex: '#231b16',
+      hairStyle: 'buzz',
+      facialHair: 'stubble',
+      shortsPrimaryHex: '#9c1b23',
+      shortsAccentHex: '#eceef2',
+      shortsPattern: 'stripes',
+      tattooStyle: 'poirierFull',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: false,
+      hasLeftAnkleWrap: false,
+      tapeColor: 'red',
+    },
+  },
+  {
+    id: 'oliveira',
+    firstName: 'CHARLES',
+    lastName: 'OLIVEIRA',
+    name: 'CHARLES OLIVEIRA',
+    nickname: 'Do Bronxs',
+    styleTag: 'MUAY THAI',
+    weightClass: 'Lightweight · 155 lbs',
+    record: '35-10-0',
+    starRating: 5.0,
+    isChampion: true,
+    stance: 'orthodox',
+    aiArchetype: 'pressureBoxer',
+    heightScale: 1.01,
+    buildScale: 0.97,
+    reachMeters: 1.88,
+    stats: {
+      power: 92,
+      speed: 91,
+      chin: 87,
+      cardio: 93,
+      kickPower: 91,
+    },
+    appearance: {
+      skinHex: '#bf8b67',
+      hairHex: '#e6d39a',
+      hairStyle: 'fade',
+      facialHair: 'stubble',
+      shortsPrimaryHex: '#15161b',
+      shortsAccentHex: '#d9b152',
+      shortsPattern: 'geometric',
+      tattooStyle: 'oliveiraChest',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: false,
+      hasLeftAnkleWrap: false,
+      tapeColor: 'blue',
+    },
+  },
+  {
+    id: 'omalley',
+    firstName: 'SEAN',
+    lastName: "O'MALLEY",
+    name: "SEAN O'MALLEY",
+    nickname: 'Suga',
+    styleTag: 'SNIPER',
+    weightClass: 'Bantamweight · 135 lbs',
+    record: '18-2-0',
+    starRating: 4.5,
+    stance: 'orthodox',
+    aiArchetype: 'counterSniper',
+    heightScale: 1.02,
+    buildScale: 0.91,
+    reachMeters: 1.83,
+    stats: {
+      power: 91,
+      speed: 98,
+      chin: 88,
+      cardio: 93,
+      kickPower: 92,
+    },
+    appearance: {
+      skinHex: '#dcaf95',
+      hairHex: '#d9488b',
+      hairStyle: 'textured',
+      facialHair: 'goatee',
+      shortsPrimaryHex: '#167a44',
+      shortsAccentHex: '#f4c038',
+      shortsPattern: 'geometric',
+      tattooStyle: 'omalleyChest',
+      hasLeftKneeSleeve: false,
+      hasRightAnkleWrap: true,
+      hasLeftAnkleWrap: true,
+      tapeColor: 'blue',
+    },
+  },
+];
+
+export function getFighterById(id: string): FighterProfile {
+  return UFC_ROSTER.find((f) => f.id === id) ?? UFC_ROSTER[0];
+}
