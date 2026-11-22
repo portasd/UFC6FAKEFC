@@ -1,6 +1,11 @@
 import React from 'react';
-import { Volume2, VolumeX, Pause, Gamepad2 } from 'lucide-react';
+import { Volume2, VolumeX, Pause, Gamepad2, Smartphone } from 'lucide-react';
 import { BoutState, formatFightClock } from '../game/combatEngine';
+import {
+  DEFAULT_CONTROL_SETTINGS,
+  formatKeyCode,
+  KeyboardAction,
+} from '../game/controlSettings';
 
 export interface HudDomRefs {
   clockEl: HTMLDivElement | null;
@@ -88,12 +93,16 @@ interface BroadcastHudProps {
   blueName: string;
   maxRounds: number;
   currentRound: number;
+  simulationMode?: boolean;
   muted: boolean;
   controllerConnected: boolean;
+  touchControlsEnabled: boolean;
+  keyboardBindings?: Record<KeyboardAction, string>;
   hudRefs: React.MutableRefObject<HudDomRefs>;
   onToggleMute: () => void;
   onPause: () => void;
   onOpenControls: () => void;
+  onToggleTouchControls: () => void;
 }
 
 function HeadIcon() {
@@ -150,12 +159,16 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
   blueName,
   maxRounds,
   currentRound,
+  simulationMode = false,
   muted,
   controllerConnected,
+  touchControlsEnabled,
+  keyboardBindings = DEFAULT_CONTROL_SETTINGS.keyboard,
   hudRefs,
   onToggleMute,
   onPause,
   onOpenControls,
+  onToggleTouchControls,
 }) => {
   return (
     <>
@@ -173,7 +186,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
           boxShadow: 'inset 0 0 140px rgba(212, 14, 8, 0.9)',
         }}
       />
-      <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-4 sm:p-5">
+      <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-3 sm:p-5 safe-area-pad">
       {/* Top Broadcast Bar */}
       <div className="w-full max-w-[1380px] mx-auto flex items-start justify-between gap-3">
         {/* TOP-LEFT: RED CORNER */}
@@ -283,6 +296,11 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
           >
             3:00
           </div>
+          {simulationMode && (
+            <div className="mt-0.5 text-[9px] font-bold tracking-[0.2em] uppercase text-[#ff8e1c] hud-text-stroke">
+              SIMULATION
+            </div>
+          )}
         </div>
 
         {/* TOP-RIGHT: BLUE CORNER */}
@@ -369,19 +387,50 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
 
       {/* Bottom Corner Utility & Controller Indicator */}
       <div className="w-full max-w-[1380px] mx-auto flex items-end justify-between gap-3">
-        <div className="text-[11px] font-medium text-white/90 tracking-wide bg-[#090a0d]/80 px-3 py-1.5 border border-white/15 flex items-center gap-3">
-          <span>
-            WASD Move/Lunge · J/I/K/L Strikes · Shift Hooks/High · Ctrl Body · Space/+Ctrl Block · Space Feint · Arrows Head Move
-          </span>
-          {controllerConnected && (
-            <span className="inline-flex items-center gap-1 text-[#4ea2ff]">
-              <Gamepad2 className="w-3.5 h-3.5" aria-hidden="true" />
-              Controller Active
+        {!touchControlsEnabled ? (
+          <div className="hidden md:flex text-[11px] font-medium text-white/90 tracking-wide bg-[#090a0d]/80 px-3 py-1.5 border border-white/15 items-center gap-3">
+            <span>
+              {formatKeyCode(keyboardBindings.circleUp)}
+              {formatKeyCode(keyboardBindings.moveBack)}
+              {formatKeyCode(keyboardBindings.circleDown)}
+              {formatKeyCode(keyboardBindings.moveForward)} Move ·{' '}
+              {formatKeyCode(keyboardBindings.leadPunch)}/{formatKeyCode(keyboardBindings.rearPunch)}/{formatKeyCode(keyboardBindings.leadKick)}/{formatKeyCode(keyboardBindings.rearKick)} Strikes ·{' '}
+              {formatKeyCode(keyboardBindings.hookMod)} Hooks ·{' '}
+              {formatKeyCode(keyboardBindings.bodyMod)} Body ·{' '}
+              {formatKeyCode(keyboardBindings.block)} Block/Feint · Arrows Head Move
             </span>
-          )}
-        </div>
+            {controllerConnected && (
+              <span className="inline-flex items-center gap-1 text-[#4ea2ff]">
+                <Gamepad2 className="w-3.5 h-3.5" aria-hidden="true" />
+                Controller Active
+              </span>
+            )}
+          </div>
+        ) : null}
 
-        <div className="flex items-center gap-2 pointer-events-auto">
+        <div
+          className={`flex items-center gap-1.5 sm:gap-2 pointer-events-auto ${
+            touchControlsEnabled ? 'mx-auto' : 'ml-auto'
+          }`}
+        >
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onToggleTouchControls();
+            }}
+            aria-label="Toggle On-Screen Touch Controls"
+            aria-pressed={touchControlsEnabled}
+            className={`h-8 sm:h-9 px-2.5 border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+              touchControlsEnabled
+                ? 'bg-[#ff8e1c] border-[#ff8e1c] text-[#090a0d]'
+                : 'bg-black/75 hover:bg-black/90 border-white/20 text-white/90'
+            }`}
+          >
+            <Smartphone className="w-3.5 h-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">Touch</span>
+          </button>
           <button
             type="button"
             tabIndex={-1}
@@ -390,7 +439,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
               onOpenControls();
             }}
             aria-label="Controls Guide"
-            className="h-9 px-3 bg-black/75 hover:bg-black/90 border border-white/20 text-xs font-semibold text-white/90 transition-colors cursor-pointer whitespace-nowrap"
+            className="h-8 sm:h-9 px-2.5 sm:px-3 bg-black/75 hover:bg-black/90 border border-white/20 text-xs font-semibold text-white/90 transition-colors cursor-pointer whitespace-nowrap"
           >
             Controls
           </button>
@@ -402,7 +451,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
               onToggleMute();
             }}
             aria-label={muted ? 'Unmute Audio' : 'Mute Audio'}
-            className="w-9 h-9 bg-black/75 hover:bg-black/90 border border-white/20 flex items-center justify-center text-white/90 transition-colors cursor-pointer"
+            className="w-8 h-8 sm:w-9 sm:h-9 bg-black/75 hover:bg-black/90 border border-white/20 flex items-center justify-center text-white/90 transition-colors cursor-pointer"
           >
             {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
@@ -414,7 +463,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
               onPause();
             }}
             aria-label="Pause Fight"
-            className="w-9 h-9 bg-black/75 hover:bg-black/90 border border-white/20 flex items-center justify-center text-white/90 transition-colors cursor-pointer"
+            className="w-8 h-8 sm:w-9 sm:h-9 bg-black/75 hover:bg-black/90 border border-white/20 flex items-center justify-center text-white/90 transition-colors cursor-pointer"
           >
             <Pause className="w-4 h-4" />
           </button>

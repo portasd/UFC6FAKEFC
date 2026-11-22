@@ -17,6 +17,77 @@ export type FighterActionType =
 
 export type GuardMode = 'none' | 'high' | 'low';
 
+export type DifficultyLevel =
+  | 'rookie'
+  | 'pro'
+  | 'champion'
+  | 'hallOfFamer'
+  | 'legend';
+
+export interface DifficultyConfig {
+  id: DifficultyLevel;
+  label: string;
+  shortLabel: string;
+  diffMult: number;
+  evadeSkill: number;
+  feintRate: number;
+  comboMax: number;
+  cooldownScale: number;
+}
+
+export const DIFFICULTY_LEVELS: Record<DifficultyLevel, DifficultyConfig> = {
+  rookie: {
+    id: 'rookie',
+    label: 'Rookie',
+    shortLabel: 'RKE',
+    diffMult: 0.52,
+    evadeSkill: 0.08,
+    feintRate: 0.04,
+    comboMax: 1,
+    cooldownScale: 1.48,
+  },
+  pro: {
+    id: 'pro',
+    label: 'Pro',
+    shortLabel: 'PRO',
+    diffMult: 0.76,
+    evadeSkill: 0.24,
+    feintRate: 0.12,
+    comboMax: 2,
+    cooldownScale: 1.18,
+  },
+  champion: {
+    id: 'champion',
+    label: 'Champion',
+    shortLabel: 'CMP',
+    diffMult: 1.0,
+    evadeSkill: 0.42,
+    feintRate: 0.2,
+    comboMax: 3,
+    cooldownScale: 1.0,
+  },
+  hallOfFamer: {
+    id: 'hallOfFamer',
+    label: 'Hall of Famer',
+    shortLabel: 'HOF',
+    diffMult: 1.18,
+    evadeSkill: 0.62,
+    feintRate: 0.34,
+    comboMax: 3,
+    cooldownScale: 0.85,
+  },
+  legend: {
+    id: 'legend',
+    label: 'Legend',
+    shortLabel: 'LEG',
+    diffMult: 1.38,
+    evadeSkill: 0.8,
+    feintRate: 0.48,
+    comboMax: 4,
+    cooldownScale: 0.72,
+  },
+};
+
 export interface FighterInput {
   moveX: number; // -1..1 relative to facing (lateral strafe)
   moveZ: number; // -1..1 forward/backward toward opponent
@@ -50,6 +121,10 @@ export interface CombatEvent {
   hitPosition?: { x: number; y: number; z: number };
 }
 
+export type GameplayMode = 'arcade' | 'simulation';
+
+export type KoStyle = 'backward' | 'crumple' | 'twisted';
+
 export interface FighterState {
   index: 0 | 1;
   profile: FighterProfile;
@@ -72,6 +147,7 @@ export interface FighterState {
   guard: GuardMode;
   action: FighterActionType;
   actionTime: number;
+  prevActionTime: number;
   actionDuration: number;
   currentStrike: StrikeId | null;
   strikeHitRegistered: boolean;
@@ -87,7 +163,9 @@ export interface FighterState {
   lungeDirX: number;
   lungeDirZ: number;
   hitReactZone: TargetZone;
+  hitReactSide: -1 | 0 | 1;
   hitReactIntensity: number;
+  koStyle: KoStyle;
   hitFlashTimer: number;
   rockedFlashTimer: number;
   stunMeter: number;
@@ -121,7 +199,8 @@ export interface BoutState {
   koMethod: 'KO' | 'TKO' | 'DECISION' | null;
   koFinishTime: string;
   momentum: number; // -1 (Red) to +1 (Blue)
-  difficulty: 'pro' | 'champion' | 'legend';
+  difficulty: DifficultyLevel;
+  simulationMode: boolean;
   calloutText: string;
   calloutTimer: number;
   calloutCorner: 'red' | 'blue' | 'neutral';
@@ -135,7 +214,7 @@ export function createFighterState(
   index: 0 | 1,
   profile: FighterProfile,
 ): FighterState {
-  const startX = index === 0 ? -1.45 : 1.45;
+  const startX = index === 0 ? -2.45 : 2.45;
   const facingYaw = index === 0 ? Math.PI / 2 : -Math.PI / 2;
   const maxHead = 100 + (profile.stats.chin - 85) * 1.1;
   const maxBody = 100 + (profile.stats.cardio - 85) * 0.8;
@@ -164,6 +243,7 @@ export function createFighterState(
     guard: 'none',
     action: 'idle',
     actionTime: 0,
+    prevActionTime: 0,
     actionDuration: 0,
     currentStrike: null,
     strikeHitRegistered: false,
@@ -179,7 +259,9 @@ export function createFighterState(
     lungeDirX: 0,
     lungeDirZ: 0,
     hitReactZone: 'head',
+    hitReactSide: 0,
     hitReactIntensity: 0,
+    koStyle: 'backward',
     hitFlashTimer: 0,
     rockedFlashTimer: 0,
     stunMeter: 0,
@@ -204,7 +286,8 @@ export function createFighterState(
 export function createBoutState(
   redProfile: FighterProfile,
   blueProfile: FighterProfile,
-  difficulty: 'pro' | 'champion' | 'legend' = 'champion',
+  difficulty: DifficultyLevel = 'champion',
+  simulationMode = false,
 ): BoutState {
   return {
     fighters: [
@@ -223,6 +306,7 @@ export function createBoutState(
     koFinishTime: '0:00',
     momentum: 0,
     difficulty,
+    simulationMode,
     calloutText: '',
     calloutTimer: 0,
     calloutCorner: 'neutral',
@@ -269,14 +353,14 @@ export function startStrike(
 
   if (steppingForward) {
     // Stepping in adds lunge distance, reach, and heavy forward weight transfer
-    lungeMult = 1.38;
-    reachMult = 1.12;
+    lungeMult = 1.32;
+    reachMult = 1.05;
     powerMult = 1.16;
   } else if (steppingBackward) {
     // Moving backward fires quick check-hooks and counter-jabs on the back foot
     extraSpeed = 1.18;
     lungeMult = -0.55;
-    reachMult = 0.96;
+    reachMult = 0.95;
   }
 
   if (isCounterWindow) {
@@ -294,6 +378,7 @@ export function startStrike(
   );
   f.action = 'strike';
   f.actionTime = 0;
+  f.prevActionTime = 0;
   f.actionDuration = dur;
   f.currentStrike = strikeId;
   f.strikeHitRegistered = false;
@@ -323,6 +408,7 @@ export function startEvade(
   }
   f.action = evadeType;
   f.actionTime = 0;
+  f.prevActionTime = 0;
   f.actionDuration =
     evadeType === 'pullBack' ? 0.34 : evadeType === 'duck' ? 0.32 : 0.3;
   f.currentStrike = null;
@@ -344,12 +430,8 @@ export function generateAiInput(
   const dz = opp.z - ai.z;
   const dist = Math.hypot(dx, dz);
 
-  const diffMult =
-    bout.difficulty === 'legend'
-      ? 1.28
-      : bout.difficulty === 'champion'
-        ? 1.0
-        : 0.74;
+  const diffCfg = DIFFICULTY_LEVELS[bout.difficulty] ?? DIFFICULTY_LEVELS.champion;
+  const diffMult = diffCfg.diffMult;
 
   ai.aiThinkTimer -= dt;
   ai.aiCooldown = Math.max(0, ai.aiCooldown - dt);
@@ -357,46 +439,49 @@ export function generateAiInput(
   const archetype: AiArchetype = ai.profile.aiArchetype;
 
   if (ai.aiThinkTimer <= 0) {
-    ai.aiThinkTimer = 0.25 + Math.random() * 0.3;
+    ai.aiThinkTimer = 0.2 + Math.random() * (0.38 / Math.max(0.55, diffMult));
     if (Math.random() < 0.45) {
       ai.aiStrafeDir = Math.random() < 0.5 ? -1 : 1;
     }
     if (archetype === 'counterSniper') {
-      ai.aiDesiredRange = 1.68;
+      ai.aiDesiredRange = 1.24;
     } else if (archetype === 'legKickBrawler') {
-      ai.aiDesiredRange = 1.6;
+      ai.aiDesiredRange = 1.18;
     } else if (archetype === 'pressureBoxer') {
-      ai.aiDesiredRange = 1.28;
+      ai.aiDesiredRange = 0.95;
     } else {
-      ai.aiDesiredRange = 1.42;
+      ai.aiDesiredRange = 1.06;
     }
   }
 
   let moveZ = 0;
-  let moveX = ai.aiStrafeDir * 0.45;
+  let moveX = ai.aiStrafeDir * 0.45 * Math.min(1.15, diffMult);
   let guard: GuardMode = 'none';
   let requestedStrike: StrikeId | null = null;
   let requestedEvade: EvadeType | null = null;
+  let requestedFeint = false;
 
   if (ai.stamina < ai.maxStamina * 0.24) {
     moveZ = -0.8;
     guard = 'high';
-    return { moveX, moveZ, guard, requestedStrike, requestedEvade };
+    return { moveX, moveZ, guard, requestedStrike, requestedEvade, requestedFeint };
   }
 
-  if (dist > ai.aiDesiredRange + 0.18) {
+  if (dist > ai.aiDesiredRange + 0.14) {
     moveZ = archetype === 'pressureBoxer' ? 0.95 : 0.78;
-  } else if (dist < ai.aiDesiredRange - 0.25) {
+  } else if (dist < ai.aiDesiredRange - 0.2) {
     moveZ = archetype === 'counterSniper' ? -0.85 : -0.45;
   }
 
   // Defensive reaction when opponent is actively striking
-  if (opp.action === 'strike' && opp.currentStrike && dist < 2.05) {
+  if (opp.action === 'strike' && opp.currentStrike && dist < 1.56) {
     const oppSpec = STRIKES[opp.currentStrike];
-    const reactChance =
-      (archetype === 'counterSniper' ? 0.72 : 0.52) * diffMult;
+    const reactChance = Math.min(
+      0.94,
+      (archetype === 'counterSniper' ? 0.72 : 0.52) * diffMult,
+    );
     if (ai.action === 'idle' && Math.random() < reactChance) {
-      if (oppSpec.zone === 'head' && Math.random() < 0.36 * diffMult) {
+      if (oppSpec.zone === 'head' && Math.random() < diffCfg.evadeSkill) {
         const r = Math.random();
         requestedEvade =
           r < 0.34 ? 'slipLeft' : r < 0.68 ? 'pullBack' : 'duck';
@@ -409,9 +494,29 @@ export function generateAiInput(
   }
 
   // Immediate pull-counter trigger if AI earned a counter window
-  if (ai.action === 'idle' && ai.counterWindowTimer > 0 && dist < 1.85) {
+  if (
+    ai.action === 'idle' &&
+    ai.counterWindowTimer > 0 &&
+    dist < 1.38 &&
+    Math.random() < Math.min(0.95, 0.35 + diffCfg.evadeSkill)
+  ) {
     requestedStrike = Math.random() < 0.5 ? 'cross' : 'leadHook';
-    return { moveX, moveZ, guard, requestedStrike, requestedEvade };
+    return { moveX, moveZ, guard, requestedStrike, requestedEvade, requestedFeint };
+  }
+
+  // High-difficulty strike feints mid-windup to bait opponent guard
+  if (
+    ai.action === 'strike' &&
+    ai.currentStrike &&
+    ai.actionTime > 0.04 &&
+    ai.actionTime < 0.11 &&
+    opp.guard !== 'none' &&
+    ai.feintCooldown <= 0 &&
+    Math.random() < diffCfg.feintRate * dt * 10
+  ) {
+    requestedFeint = true;
+    ai.aiQueuedCombo = opp.guard === 'high' ? ['bodyHook', 'leadHook'] : ['headKick'];
+    return { moveX, moveZ, guard, requestedStrike, requestedEvade, requestedFeint };
   }
 
   // Continue queued combo if in strike cancel window
@@ -422,7 +527,7 @@ export function generateAiInput(
   ) {
     const spec = STRIKES[ai.currentStrike];
     const progress = ai.actionTime / Math.max(0.01, ai.actionDuration);
-    if (progress >= spec.cancelAt && dist < 1.95) {
+    if (progress >= spec.cancelAt && dist < 1.42) {
       requestedStrike = ai.aiQueuedCombo.shift() ?? null;
     }
   }
@@ -433,11 +538,12 @@ export function generateAiInput(
     ai.aiCooldown <= 0 &&
     guard === 'none' &&
     !requestedEvade &&
-    dist <= 1.95
+    dist <= 1.48
   ) {
     const aggroRoll = Math.random();
-    if (aggroRoll < 0.75 * diffMult) {
-      if (dist > 1.62) {
+    if (aggroRoll < Math.min(0.96, 0.72 * diffMult)) {
+      let plannedFollowups: StrikeId[] = [];
+      if (dist > 1.18) {
         const longRange: StrikeId[] =
           archetype === 'legKickBrawler'
             ? ['legKick', 'rearLegKick', 'bodyKick', 'jab']
@@ -447,11 +553,11 @@ export function generateAiInput(
         requestedStrike =
           longRange[Math.floor(Math.random() * longRange.length)];
         if (requestedStrike === 'jab') {
-          ai.aiQueuedCombo = ['cross', 'rearLegKick'];
+          plannedFollowups = ['cross', 'rearLegKick'];
         }
       } else {
         if (archetype === 'volumeCombo') {
-          ai.aiQueuedCombo =
+          plannedFollowups =
             Math.random() < 0.55
               ? ['cross', 'leadHook', 'rearLegKick']
               : ['cross', 'bodyHook', 'leadHook'];
@@ -466,17 +572,17 @@ export function generateAiInput(
           ];
           requestedStrike =
             openers[Math.floor(Math.random() * openers.length)];
-          ai.aiQueuedCombo =
+          plannedFollowups =
             requestedStrike === 'bodyHook'
               ? ['leadHook', 'overhand']
               : ['rearUppercut', 'leadHook'];
         } else if (archetype === 'legKickBrawler') {
           if (Math.random() < 0.48) {
             requestedStrike = 'rearLegKick';
-            ai.aiQueuedCombo = ['jab', 'rearHook'];
+            plannedFollowups = ['jab', 'rearHook'];
           } else {
             requestedStrike = 'jab';
-            ai.aiQueuedCombo = ['cross', 'legKick'];
+            plannedFollowups = ['cross', 'legKick'];
           }
         } else {
           const sniper: StrikeId[] = [
@@ -487,15 +593,19 @@ export function generateAiInput(
             'overhand',
           ];
           requestedStrike = sniper[Math.floor(Math.random() * sniper.length)];
-          ai.aiQueuedCombo = ['leadHook'];
+          plannedFollowups = ['leadHook'];
         }
       }
+      ai.aiQueuedCombo = plannedFollowups.slice(
+        0,
+        Math.max(0, diffCfg.comboMax - 1),
+      );
       ai.aiCooldown =
-        (archetype === 'volumeCombo' ? 0.36 : 0.56) / Math.max(0.75, diffMult);
+        (archetype === 'volumeCombo' ? 0.36 : 0.56) * diffCfg.cooldownScale;
     }
   }
 
-  return { moveX, moveZ, guard, requestedStrike, requestedEvade };
+  return { moveX, moveZ, guard, requestedStrike, requestedEvade, requestedFeint };
 }
 
 export function stepBout(
@@ -554,7 +664,8 @@ export function stepBout(
     return events;
   }
 
-  const timeScale = bout.slowMoTimer > 0 ? 0.45 : 1.0;
+  const simPaceScale = bout.simulationMode ? 0.78 : 1.0;
+  const timeScale = (bout.slowMoTimer > 0 ? 0.45 : 1.0) * simPaceScale;
   if (bout.slowMoTimer > 0) {
     bout.slowMoTimer = Math.max(0, bout.slowMoTimer - dt);
   }
@@ -592,12 +703,13 @@ export function stepBout(
       bout.roundTimeRemaining = bout.roundDuration;
       bout.roundDamage = [0, 0];
       for (const f of bout.fighters) {
-        f.x = f.index === 0 ? -1.45 : 1.45;
+        f.x = f.index === 0 ? -2.45 : 2.45;
         f.z = 0;
         f.vx = 0;
         f.vz = 0;
         f.action = 'idle';
         f.actionTime = 0;
+        f.prevActionTime = 0;
         f.currentStrike = null;
         f.queuedStrike = null;
         f.queuedStrikeTimer = 0;
@@ -631,10 +743,15 @@ export function stepBout(
     const dz = opp.z - f.z;
     const targetYaw = Math.atan2(dx, dz);
 
-    // Smooth auto-face opponent unless mid-knockdown/KO
+    // Smooth auto-face opponent unless mid-knockdown/KO (stronger footwork tracking during early strike windup)
     if (f.action !== 'knockdown' && f.action !== 'ko') {
       const yawDiff = normalizeAngle(targetYaw - f.facingYaw);
-      const turnRate = f.action === 'strike' ? 4.5 : 10.5;
+      const strikeProgress =
+        f.action === 'strike' && f.actionDuration > 0
+          ? f.actionTime / f.actionDuration
+          : 1;
+      const turnRate =
+        f.action === 'strike' ? (strikeProgress < 0.35 ? 8.2 : 4.2) : 10.5;
       f.facingYaw = normalizeAngle(
         f.facingYaw + yawDiff * (1 - Math.exp(-turnRate * simDt)),
       );
@@ -669,7 +786,8 @@ export function stepBout(
       f.queuedStrikeTimer = 0.18;
     }
 
-    // Advance current action timer
+    // Advance current action timer (record prevActionTime for swept hit detection)
+    f.prevActionTime = f.actionTime;
     if (f.action !== 'idle') {
       f.actionTime += simDt;
       if (f.action === 'strike' && f.currentStrike) {
@@ -792,13 +910,14 @@ export function stepBout(
       startEvade(f, input.requestedEvade);
     }
 
-    // Stamina & block regeneration
+    // Stamina & block regeneration (Simulation Mode slightly slows stamina recovery)
+    const simStaminaRegenMult = bout.simulationMode ? 0.74 : 1.0;
     const staminaRegenRate =
-      f.guard !== 'none'
+      (f.guard !== 'none'
         ? 6.5
         : f.action === 'idle' && f.lungeTimer <= 0
           ? 16.5 * (0.8 + (f.profile.stats.cardio / 100) * 0.35)
-          : 0;
+          : 0) * simStaminaRegenMult;
     const bodyFactor = 0.55 + 0.45 * (f.bodyHp / f.maxBodyHp);
     f.stamina = clamp(
       f.stamina + staminaRegenRate * bodyFactor * simDt,
@@ -810,21 +929,23 @@ export function stepBout(
       f.blockHealth = clamp(f.blockHealth + 18 * simDt, 0, f.maxBlockHealth);
     }
 
-    // Footwork & directional lunge velocity
+    // Footwork & directional lunge velocity (Simulation Mode slows fighter movement)
     const fwdX = Math.sin(f.facingYaw);
     const fwdZ = Math.cos(f.facingYaw);
     const rightX = Math.cos(f.facingYaw);
     const rightZ = -Math.sin(f.facingYaw);
 
     const legMobility = 0.6 + 0.4 * (f.legHp / f.maxLegHp);
+    const simMoveMult = bout.simulationMode ? 0.78 : 1.0;
     const baseMoveSpeed =
       (2.75 + (f.profile.stats.speed - 85) * 0.025) *
       legMobility *
+      simMoveMult *
       (f.guard !== 'none' ? 0.56 : 1.0) *
       (f.action === 'stunned' ? 0.48 : 1.0);
 
     if (f.lungeTimer > 0 && f.action === 'idle') {
-      const lungeSpeed = 5.35 * legMobility;
+      const lungeSpeed = 5.35 * legMobility * simMoveMult;
       const targetVx = (fwdX * f.lungeDirZ + rightX * f.lungeDirX) * lungeSpeed;
       const targetVz = (fwdZ * f.lungeDirZ + rightZ * f.lungeDirX) * lungeSpeed;
       const snap = 1 - Math.exp(-24 * simDt);
@@ -914,35 +1035,73 @@ export function stepBout(
     const normWindup = (spec.windup / totalBase) * dur;
     const normActiveEnd = ((spec.windup + spec.active) / totalBase) * dur;
 
-    if (atk.actionTime < normWindup || atk.actionTime > normActiveEnd) {
+    // Swept interval overlap: never miss fast strikes on coarse mobile frame steps
+    if (atk.actionTime < normWindup || atk.prevActionTime > normActiveEnd) {
       continue;
     }
 
-    // Distance & cone check (including forward lunge reach modifier)
-    const dx = def.x - atk.x;
-    const dz = def.z - atk.z;
-    const dist = Math.hypot(dx, dz);
+    // Compute defender anatomical target center (accounting for active head movement displacement)
+    const defFwdX = Math.sin(def.facingYaw);
+    const defFwdZ = Math.cos(def.facingYaw);
+    const defRightX = Math.cos(def.facingYaw);
+    const defRightZ = -Math.sin(def.facingYaw);
+    let tx = def.x;
+    let tz = def.z;
+
+    if (spec.zone === 'head') {
+      if (def.action === 'slipLeft') {
+        tx -= defRightX * 0.2;
+        tz -= defRightZ * 0.2;
+      } else if (def.action === 'slipRight') {
+        tx += defRightX * 0.2;
+        tz += defRightZ * 0.2;
+      } else if (def.action === 'pullBack') {
+        tx -= defFwdX * 0.24;
+        tz -= defFwdZ * 0.24;
+      } else if (def.action === 'duck') {
+        tx += defFwdX * 0.08;
+        tz += defFwdZ * 0.08;
+      }
+    }
+
+    // Anatomical capsule radius per zone + tight swept strike capsule test
+    const defenderRadius =
+      spec.zone === 'head' ? 0.16 : spec.zone === 'body' ? 0.2 : 0.18;
+    const isArcStrike =
+      spec.isKick ||
+      spec.id === 'leadHook' ||
+      spec.id === 'rearHook' ||
+      spec.id === 'overhand' ||
+      spec.id === 'bodyHook' ||
+      spec.id === 'rearBodyHook' ||
+      spec.id === 'spinningBackfist';
+    const arcTolerance = isArcStrike ? 0.16 : 0.05;
+
     const effectiveReach =
       spec.reach * atk.strikeReachMult * (atk.profile.reachMeters / 1.82);
-
-    if (dist > effectiveReach) {
-      continue;
-    }
-
-    const dirX = dist > 0.001 ? dx / dist : Math.sin(atk.facingYaw);
-    const dirZ = dist > 0.001 ? dz / dist : Math.cos(atk.facingYaw);
     const atkFwdX = Math.sin(atk.facingYaw);
     const atkFwdZ = Math.cos(atk.facingYaw);
-    const alignment = dirX * atkFwdX + dirZ * atkFwdZ;
 
-    if (alignment < 0.38) {
-      continue;
-    }
+    const checkPointInStrikeBox = (px: number, pz: number) => {
+      const pdx = px - atk.x;
+      const pdz = pz - atk.z;
+      const pDist = Math.hypot(pdx, pdz);
+      const pProj = pdx * atkFwdX + pdz * atkFwdZ;
+      const cProj = clamp(pProj, 0, effectiveReach);
+      const cx = atk.x + atkFwdX * cProj;
+      const cz = atk.z + atkFwdZ * cProj;
+      const pPerp = Math.hypot(px - cx, pz - cz);
+      return (
+        pProj >= 0 &&
+        pDist <= effectiveReach + defenderRadius * 0.45 &&
+        pPerp <= defenderRadius + arcTolerance
+      );
+    };
 
-    // Mark strike resolution attempted so it doesn't hit multiple frames
-    atk.strikeHitRegistered = true;
+    const inShiftedBox = checkPointInStrikeBox(tx, tz);
+    const inBaseBox = checkPointInStrikeBox(def.x, def.z);
 
-    // Head movement evasion check vs directional vulnerability!
+    // Head movement evasion window
     const inEvadeWindow =
       (def.action === 'slipLeft' ||
         def.action === 'slipRight' ||
@@ -950,6 +1109,19 @@ export function stepBout(
         def.action === 'duck') &&
       def.actionTime >= 0.02 &&
       def.actionTime <= def.actionDuration * 0.85;
+
+    if (!inShiftedBox && !(inEvadeWindow && inBaseBox)) {
+      continue;
+    }
+
+    const dx = tx - atk.x;
+    const dz = tz - atk.z;
+    const dist = Math.hypot(dx, dz);
+    const dirX = dist > 0.001 ? dx / dist : atkFwdX;
+    const dirZ = dist > 0.001 ? dz / dist : atkFwdZ;
+
+    // Mark strike resolution attempted so it doesn't hit multiple frames
+    atk.strikeHitRegistered = true;
 
     let cleanEvade = false;
     let caughtLeaning = false;
@@ -999,11 +1171,15 @@ export function stepBout(
           cleanEvade = true;
         }
       } else if (def.action === 'pullBack') {
-        if (spec.zone === 'head' && dist > effectiveReach * 0.66) {
+        if (spec.zone === 'head' && (!inShiftedBox || dist > effectiveReach * 0.62)) {
           cleanEvade = true;
         } else if (spec.id === 'headKick' || spec.id === 'overhand') {
           caughtLeaning = true;
         }
+      }
+      // If physical displacement moved target outside strike box and opponent didn't lean into it, grant clean evade
+      if (!inShiftedBox && !caughtLeaning) {
+        cleanEvade = true;
       }
     }
 
@@ -1035,11 +1211,17 @@ export function stepBout(
       ((spec.zone === 'body' || spec.zone === 'leg') && def.guard === 'low');
 
     const hitY =
-      spec.zone === 'head' ? 1.54 : spec.zone === 'body' ? 1.12 : 0.62;
+      spec.zone === 'head'
+        ? def.action === 'duck'
+          ? 1.24
+          : 1.54
+        : spec.zone === 'body'
+          ? 1.12
+          : 0.62;
     const hitPos = {
-      x: def.x - dirX * 0.16,
+      x: tx - dirX * defenderRadius * 0.55,
       y: hitY,
-      z: def.z - dirZ * 0.16,
+      z: tz - dirZ * defenderRadius * 0.55,
     };
 
     if (isProperBlock && def.blockHealth > 4 && !caughtLeaning) {
@@ -1139,18 +1321,38 @@ export function stepBout(
 
     if (lethal) {
       def.knockdowns += 1;
+      const koFromLeft =
+        (atk.stance === 'orthodox' && spec.isLeadSide) ||
+        (atk.stance === 'southpaw' && !spec.isLeadSide);
       if (def.knockdowns >= 2 || def.headHp <= 0 || def.stunMeter >= 45) {
         def.action = 'ko';
         def.actionTime = 0;
-        def.actionDuration = 3.0;
+        def.actionDuration = 3.2;
         def.currentStrike = null;
         def.guard = 'none';
+        def.hitReactZone = spec.zone;
+        def.hitReactSide = koFromLeft ? -1 : 1;
+        def.hitReactIntensity = 1.25;
+        def.koStyle =
+          spec.zone !== 'head' ||
+          spec.id === 'leadUppercut' ||
+          spec.id === 'rearUppercut'
+            ? 'crumple'
+            : spec.id === 'leadHook' ||
+                spec.id === 'rearHook' ||
+                spec.id === 'spinningBackfist' ||
+                spec.id === 'headKick' ||
+                spec.id === 'leadHeadKick'
+              ? 'twisted'
+              : 'backward';
+        def.vx += dirX * Math.max(2.6, spec.knockback * 1.45);
+        def.vz += dirZ * Math.max(2.6, spec.knockback * 1.45);
         bout.koWinnerIndex = atk.index;
         bout.koMethod = def.headHp <= 0 ? 'KO' : 'TKO';
         const elapsed = bout.roundDuration - bout.roundTimeRemaining;
         bout.koFinishTime = `R${bout.round} · ${formatFightClock(elapsed)}`;
-        bout.slowMoTimer = 1.65;
-        bout.hitstopTimer = 0.085;
+        bout.slowMoTimer = 1.95;
+        bout.hitstopTimer = 0.095;
         bout.calloutText = def.headHp <= 0 ? 'KNOCKOUT!' : 'TKO!';
         bout.calloutTimer = 4.0;
         bout.calloutCorner = atk.index === 0 ? 'red' : 'blue';
@@ -1228,11 +1430,15 @@ export function stepBout(
       });
     } else if (def.action !== 'stunned') {
       if (isHeavy || def.action === 'idle' || caughtLeaning) {
+        const hitFromLeft =
+          (atk.stance === 'orthodox' && spec.isLeadSide) ||
+          (atk.stance === 'southpaw' && !spec.isLeadSide);
         def.action = 'hitReact';
         def.actionTime = 0;
         def.actionDuration = isHeavy ? 0.28 : 0.19;
         def.currentStrike = null;
         def.hitReactZone = spec.zone;
+        def.hitReactSide = hitFromLeft ? -1 : 1;
         def.hitReactIntensity = isHeavy ? 1.0 : 0.65;
       }
     }

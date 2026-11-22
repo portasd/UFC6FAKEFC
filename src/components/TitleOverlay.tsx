@@ -1,6 +1,17 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ArrowLeft, Gamepad2, Play, Shuffle, SlidersHorizontal } from 'lucide-react';
-import { FighterProfile, UFC_ROSTER } from '../game/fighters';
+import {
+  FighterProfile,
+  matchesRosterFilter,
+  RosterFilter,
+  UFC_ROSTER,
+} from '../game/fighters';
+import {
+  DIFFICULTY_LEVELS,
+  DifficultyLevel,
+  GameplayMode,
+} from '../game/combatEngine';
+import { getFighterPortraitUrl } from '../game/portraits';
 import { ControllerStatus } from '../game/inputHub';
 
 export type TitleStep = 'menu' | 'select';
@@ -9,227 +20,26 @@ interface TitleOverlayProps {
   titleStep: TitleStep;
   redId: string;
   blueId: string;
-  difficulty: 'pro' | 'champion' | 'legend';
+  difficulty: DifficultyLevel;
+  gameplayMode: GameplayMode;
   controller: ControllerStatus;
   onEnterSelect: () => void;
   onBackToMenu: () => void;
   onSelectRed: (id: string) => void;
   onSelectBlue: (id: string) => void;
-  onSelectDifficulty: (d: 'pro' | 'champion' | 'legend') => void;
+  onSelectDifficulty: (d: DifficultyLevel) => void;
+  onSelectGameplayMode: (m: GameplayMode) => void;
   onRandomize: () => void;
   onStartFight: () => void;
   onOpenControls: () => void;
 }
 
-const portraitCache = new Map<string, string>();
-
-function getFighterPortraitUrl(profile: FighterProfile): string {
-  const cached = portraitCache.get(profile.id);
-  if (cached) return cached;
-  if (typeof document === 'undefined') return '';
-
-  const c = document.createElement('canvas');
-  c.width = 160;
-  c.height = 104;
-  const ctx = c.getContext('2d');
-  if (!ctx) return '';
-
-  // Dramatic dark studio backdrop
-  const bg = ctx.createLinearGradient(0, 0, 0, 104);
-  bg.addColorStop(0, '#2a303e');
-  bg.addColorStop(1, '#0d0f15');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, 160, 104);
-
-  const rim = ctx.createRadialGradient(84, 42, 6, 80, 48, 60);
-  rim.addColorStop(0, 'rgba(255, 224, 196, 0.22)');
-  rim.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  ctx.fillStyle = rim;
-  ctx.fillRect(0, 0, 160, 104);
-
-  ctx.save();
-  ctx.translate(80, 4);
-  ctx.scale(0.76, 0.76);
-
-  const skin = profile.appearance.skinHex;
-  const hair = profile.appearance.hairHex;
-
-  // Muscular Shoulders & Traps scaled subtly by buildScale
-  const sw = 58 * profile.buildScale;
-  ctx.fillStyle = skin;
-  ctx.beginPath();
-  ctx.moveTo(-sw, 134);
-  ctx.quadraticCurveTo(-44 * profile.buildScale, 92, -16, 86);
-  ctx.lineTo(16, 86);
-  ctx.quadraticCurveTo(44 * profile.buildScale, 92, sw, 134);
-  ctx.closePath();
-  ctx.fill();
-
-  // Neck shadow + Traps
-  ctx.fillStyle = 'rgba(20, 9, 5, 0.28)';
-  ctx.fillRect(-15, 72, 30, 26);
-  ctx.fillStyle = skin;
-  ctx.fillRect(-13, 68, 26, 26);
-
-  // Chest tattoo hints tailored per fighter
-  const ts = profile.appearance.tattooStyle;
-  if (ts === 'hollowayFull' || ts === 'poirierFull' || ts === 'fullSleeveChest') {
-    ctx.fillStyle = 'rgba(18, 25, 32, 0.56)';
-    ctx.fillRect(-38, 100, 32, 22);
-    ctx.fillRect(6, 100, 32, 22);
-  } else if (ts === 'mcgregorChest') {
-    ctx.fillStyle = 'rgba(18, 25, 32, 0.58)';
-    ctx.beginPath();
-    ctx.arc(0, 114, 15, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#c88c38';
-    ctx.fillRect(-8, 95, 16, 5);
-  } else if (ts === 'omalleyChest') {
-    ctx.fillStyle = 'rgba(30, 68, 72, 0.55)';
-    ctx.beginPath();
-    ctx.moveTo(-36, 104);
-    ctx.lineTo(0, 126);
-    ctx.lineTo(36, 104);
-    ctx.closePath();
-    ctx.fill();
-  } else if (ts === 'chestBand' || ts === 'oliveiraChest') {
-    ctx.strokeStyle = 'rgba(20, 28, 36, 0.62)';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(-34, 112);
-    ctx.quadraticCurveTo(0, 100, 34, 112);
-    ctx.stroke();
-  }
-
-  // Ears
-  ctx.fillStyle = skin;
-  ctx.beginPath();
-  ctx.ellipse(-25, 47, 4.8, 8.8, 0, 0, Math.PI * 2);
-  ctx.ellipse(25, 47, 4.8, 8.8, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Sculpted Athletic Face + Square Jawline
-  ctx.fillStyle = skin;
-  ctx.beginPath();
-  ctx.moveTo(-23.5, 33);
-  ctx.quadraticCurveTo(-24, 14, 0, 13);
-  ctx.quadraticCurveTo(24, 14, 23.5, 33);
-  ctx.lineTo(21, 59);
-  ctx.quadraticCurveTo(15, 76, 0, 77);
-  ctx.quadraticCurveTo(-15, 76, -21, 59);
-  ctx.closePath();
-  ctx.fill();
-
-  // Dramatic right-to-left studio shading on face
-  const sideShade = ctx.createLinearGradient(-24, 20, 24, 72);
-  sideShade.addColorStop(0, 'rgba(12, 5, 3, 0.34)');
-  sideShade.addColorStop(0.5, 'rgba(0,0,0,0)');
-  sideShade.addColorStop(1, 'rgba(255, 224, 198, 0.14)');
-  ctx.fillStyle = sideShade;
-  ctx.fill();
-
-  // Hair style
-  if (profile.appearance.hairStyle !== 'shaved') {
-    ctx.fillStyle = hair;
-    ctx.beginPath();
-    ctx.ellipse(0, 19, 23.5, 11.5, 0, Math.PI, Math.PI * 2);
-    ctx.fill();
-    if (profile.appearance.hairStyle === 'textured') {
-      ctx.beginPath();
-      ctx.ellipse(0, 14, 22, 10, 0, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (profile.appearance.hairStyle === 'fade') {
-      ctx.fillRect(-22, 18, 44, 6);
-    } else {
-      ctx.fillRect(-21, 19, 42, 4.5);
-    }
-  }
-
-  // Intense Eyebrows & Orbital Shading
-  ctx.strokeStyle = hair;
-  ctx.lineWidth = 3.2;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(-17, 37);
-  ctx.quadraticCurveTo(-10, 34, -4, 37);
-  ctx.moveTo(4, 37);
-  ctx.quadraticCurveTo(10, 34, 17, 37);
-  ctx.stroke();
-
-  for (const ex of [-10.5, 10.5]) {
-    ctx.fillStyle = 'rgba(20, 8, 5, 0.25)';
-    ctx.beginPath();
-    ctx.arc(ex, 43, 6.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ddd6cd';
-    ctx.beginPath();
-    ctx.ellipse(ex, 43, 4.1, 2.0, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#18100c';
-    ctx.beginPath();
-    ctx.arc(ex, 43, 1.9, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Nose & Mouth
-  ctx.fillStyle = 'rgba(22, 9, 5, 0.28)';
-  ctx.beginPath();
-  ctx.moveTo(0, 41);
-  ctx.lineTo(-4.2, 55);
-  ctx.lineTo(4.2, 55);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.strokeStyle = 'rgba(38, 14, 12, 0.8)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(-8, 63);
-  ctx.lineTo(8, 63);
-  ctx.stroke();
-
-  // Facial hair
-  const fh = profile.appearance.facialHair;
-  if (fh === 'fullBeard') {
-    ctx.fillStyle = hair;
-    ctx.globalAlpha = 0.92;
-    ctx.beginPath();
-    ctx.moveTo(-21, 49);
-    ctx.quadraticCurveTo(-18, 78, 0, 80);
-    ctx.quadraticCurveTo(18, 78, 21, 49);
-    ctx.lineTo(15, 59);
-    ctx.quadraticCurveTo(0, 67, -15, 59);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(0, 58.5, 9, 2.3, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  } else if (fh === 'goatee') {
-    ctx.fillStyle = hair;
-    ctx.globalAlpha = 0.88;
-    ctx.beginPath();
-    ctx.ellipse(0, 70, 8.2, 9, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(0, 58.5, 8, 2.2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  } else if (fh === 'stubble') {
-    ctx.fillStyle = 'rgba(18, 14, 14, 0.26)';
-    ctx.beginPath();
-    ctx.moveTo(-20, 52);
-    ctx.quadraticCurveTo(0, 79, 20, 52);
-    ctx.lineTo(14, 68);
-    ctx.quadraticCurveTo(0, 75, -14, 68);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  ctx.restore();
-  const dataUrl = c.toDataURL('image/png');
-  portraitCache.set(profile.id, dataUrl);
-  return dataUrl;
-}
+const FILTER_OPTIONS: Array<{ id: RosterFilter; label: string }> = [
+  { id: 'all', label: `All (${UFC_ROSTER.length})` },
+  { id: 'light', label: 'Light · 135-155' },
+  { id: 'mid', label: 'Mid · 170-185' },
+  { id: 'heavy', label: 'Heavy · 205+' },
+];
 
 function StarRating({ rating }: { rating: number }) {
   const full = Math.floor(rating);
@@ -260,7 +70,7 @@ function ChampSealBadge() {
     <svg
       viewBox="0 0 96 96"
       className="w-20 h-20 -rotate-12 drop-shadow-[0_6px_14px_rgba(0,0,0,0.65)] shrink-0"
-      aria-label="UFC World Champion"
+      aria-label="OFC World Champion"
     >
       <polygon
         points="28,6 68,6 90,28 90,68 68,90 28,90 6,68 6,28"
@@ -290,7 +100,7 @@ function ChampSealBadge() {
         fontWeight="900"
         fontFamily="Barlow Condensed, sans-serif"
       >
-        UFC
+        OFC
       </text>
       <text
         x="48"
@@ -323,20 +133,30 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   redId,
   blueId,
   difficulty,
+  gameplayMode,
   controller,
   onEnterSelect,
   onBackToMenu,
   onSelectRed,
   onSelectBlue,
   onSelectDifficulty,
+  onSelectGameplayMode,
   onRandomize,
   onStartFight,
   onOpenControls,
 }) => {
+  const [mobileCorner, setMobileCorner] = useState<'red' | 'blue'>('red');
+  const [rosterFilter, setRosterFilter] = useState<RosterFilter>('all');
+
   const redFighter: FighterProfile =
     UFC_ROSTER.find((f) => f.id === redId) ?? UFC_ROSTER[0];
   const blueFighter: FighterProfile =
     UFC_ROSTER.find((f) => f.id === blueId) ?? UFC_ROSTER[1];
+
+  const filteredRoster = useMemo(
+    () => UFC_ROSTER.filter((f) => matchesRosterFilter(f, rosterFilter)),
+    [rosterFilter],
+  );
 
   const portraits = useMemo(() => {
     const map: Record<string, string> = {};
@@ -348,47 +168,47 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
 
   if (titleStep === 'menu') {
     return (
-      <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between">
-        {/* Cinematic Left Dark Scrim (leaving fiery orange/red hero Max Holloway unobstructed on right!) */}
+      <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between safe-area-pad">
+        {/* Cinematic Left Dark Scrim (leaving fiery orange/red hero unobstructed on right) */}
         <div
           aria-hidden="true"
-          className="absolute inset-y-0 left-0 w-[62%] bg-gradient-to-r from-[#070504]/95 via-[#090503]/62 to-transparent"
+          className="absolute inset-y-0 left-0 w-[68%] sm:w-[62%] bg-gradient-to-r from-[#070504]/95 via-[#090503]/62 to-transparent"
         />
 
-        {/* TOP BAR (matching image_c94e6796.png top-left header) */}
-        <div className="relative z-10 w-full px-8 sm:px-12 pt-7 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-white text-[#0b0d12] flex items-center justify-center font-display font-extrabold italic text-sm leading-none">
-                UFC
-              </div>
-              <span className="font-display font-extrabold italic text-2xl sm:text-3xl tracking-tight text-white uppercase leading-none">
-                STAND &amp; BANG
+        {/* TOP BAR (OFC 6 Top-Left Brand + Utility Controls) */}
+        <div className="relative z-10 w-full px-5 sm:px-12 pt-4 sm:pt-7 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+            <div className="flex items-center gap-2 sm:gap-2.5">
+              <span className="font-display font-extrabold italic text-3xl sm:text-4xl tracking-tight text-white uppercase leading-none">
+                OFC
+              </span>
+              <span className="px-2 py-0.5 bg-[#ff8e1c] text-[#090a0d] font-display font-extrabold italic text-xl sm:text-2xl leading-none">
+                6
               </span>
             </div>
 
-            <div className="h-5 w-px bg-white/25" />
+            <div className="hidden sm:block h-5 w-px bg-white/25" />
 
-            <div className="border-b-2 border-[#ff8e1c] pb-0.5 text-xs font-bold tracking-[0.2em] uppercase text-white">
+            <div className="hidden sm:block border-b-2 border-[#ff8e1c] pb-0.5 text-xs font-bold tracking-[0.2em] uppercase text-white">
               PLAY
             </div>
           </div>
 
-          <div className="pointer-events-auto flex items-center gap-2">
+          <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={onOpenControls}
-              className="px-3 py-1.5 bg-black/55 hover:bg-black/80 border border-white/20 text-xs font-semibold text-white/90 transition-colors cursor-pointer flex items-center gap-1.5"
+              className="px-2.5 sm:px-3 py-1.5 bg-black/55 hover:bg-black/80 border border-white/20 text-xs font-semibold text-white/90 transition-colors cursor-pointer flex items-center gap-1.5 min-h-[36px]"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" aria-hidden="true" />
-              Controls
+              <span>Controls</span>
             </button>
           </div>
         </div>
 
-        {/* LEFT MAIN MENU COLUMN: ONLY "FIGHT NOW" BUTTON (matching image_c94e6796.png) */}
-        <div className="relative z-10 px-8 sm:px-12 my-auto pointer-events-auto max-w-[520px]">
-          <div className="text-[11px] font-bold tracking-[0.22em] uppercase text-white/55 mb-3">
+        {/* LEFT MAIN MENU COLUMN */}
+        <div className="relative z-10 px-5 sm:px-12 my-auto pointer-events-auto max-w-[520px]">
+          <div className="text-[11px] font-bold tracking-[0.22em] uppercase text-white/55 mb-2.5 sm:mb-3">
             PLAY MODES
           </div>
 
@@ -398,40 +218,34 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             onClick={onEnterSelect}
             className="group w-full text-left cursor-pointer transition-transform active:scale-[0.99]"
           >
-            <div className="relative overflow-hidden bg-white text-[#0b0d12] px-5 py-3.5 flex items-center justify-between shadow-[0_14px_40px_rgba(0,0,0,0.65)]">
-              <span className="font-display font-extrabold text-4xl sm:text-5xl tracking-tight uppercase leading-none">
+            <div className="relative overflow-hidden bg-white text-[#0b0d12] px-4 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between shadow-[0_14px_40px_rgba(0,0,0,0.65)]">
+              <span className="font-display font-extrabold text-3xl sm:text-5xl tracking-tight uppercase leading-none">
                 FIGHT NOW
               </span>
               <div
                 aria-hidden="true"
-                className="w-24 h-12 bg-gradient-to-r from-[#ff7a18] via-[#d92626] to-[#1a0c08] opacity-90 flex items-center justify-center skew-x-[-14deg] mr-[-10px]"
+                className="w-20 sm:w-24 h-11 sm:h-12 bg-gradient-to-r from-[#ff7a18] via-[#d92626] to-[#1a0c08] opacity-90 flex items-center justify-center skew-x-[-14deg] mr-[-10px]"
               >
-                <Play className="w-6 h-6 text-white fill-current skew-x-[14deg]" />
+                <Play className="w-5 h-5 sm:w-6 sm:h-6 text-white fill-current skew-x-[14deg]" />
               </div>
-            </div>
-
-            <div className="bg-[#0e0a07]/90 border-t-2 border-[#ff8e1c] px-4 py-2 text-xs text-white/85 flex items-center gap-2">
-              <span className="text-[#ff8e1c] font-bold">▸</span>
-              <span>
-                Step inside the Octagon — Select UFC Fighters, Difficulty &amp; Brawl
-              </span>
             </div>
           </button>
         </div>
 
-        {/* BOTTOM PROMPT STRIP (matching image_c94e6796.png bottom bar) */}
-        <div className="relative z-10 px-8 sm:px-12 pb-6 flex items-center justify-between text-xs text-white/80">
+        {/* BOTTOM PROMPT STRIP */}
+        <div className="relative z-10 px-5 sm:px-12 pb-4 sm:pb-6 flex items-center justify-between gap-2 text-xs text-white/80">
           <div className="flex items-center gap-2 font-semibold tracking-wider uppercase">
-            <span className="w-5 h-5 rounded-full bg-white text-[#0b0d12] text-[11px] font-extrabold flex items-center justify-center">
+            <span className="w-5 h-5 rounded-full bg-white text-[#0b0d12] text-[11px] font-extrabold flex items-center justify-center shrink-0">
               A
             </span>
-            <span>Enter · Select Fight Now</span>
+            <span className="hidden sm:inline">Enter · Select Fight Now</span>
+            <span className="sm:hidden">Tap Fight Now</span>
           </div>
 
-          <div className="flex items-center gap-2 text-white/75 bg-black/50 px-3 py-1 border border-white/15">
-            <Gamepad2 className="w-3.5 h-3.5 text-[#ff8e1c]" aria-hidden="true" />
-            <span>
-              {controller.connected ? controller.name : 'Controller + Keyboard Ready'}
+          <div className="flex items-center gap-2 text-white/75 bg-black/50 px-2.5 sm:px-3 py-1 border border-white/15 truncate">
+            <Gamepad2 className="w-3.5 h-3.5 text-[#ff8e1c] shrink-0" aria-hidden="true" />
+            <span className="truncate">
+              {controller.connected ? controller.name : 'Touch · Controller · Keyboard'}
             </span>
           </div>
         </div>
@@ -439,55 +253,287 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
     );
   }
 
-  // FIGHTER SELECTION SCREEN (Split Crimson Red vs Royal Blue Stage)
+  // FIGHTER SELECTION SCREEN (Adaptive Mobile Corner-Switcher vs Desktop Split Stage)
   return (
-    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between">
+    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between overflow-hidden safe-area-pad">
       <div
         aria-hidden="true"
-        className="absolute inset-x-0 bottom-0 h-[44%] bg-gradient-to-t from-[#05060a] via-[#05060a]/85 to-transparent"
+        className="absolute inset-x-0 bottom-0 h-[58%] lg:h-[47%] bg-gradient-to-t from-[#05060a] via-[#05060a]/90 to-transparent"
       />
 
       {/* TOP BAR */}
-      <div className="relative z-10 w-full max-w-[1400px] mx-auto px-5 pt-4 sm:pt-5 flex items-start justify-between">
-        <div className="pointer-events-auto flex items-center gap-2">
+      <div className="relative z-10 w-full max-w-[1400px] mx-auto px-3 sm:px-5 pt-2 sm:pt-4 flex items-center justify-between gap-2">
+        <div className="pointer-events-auto flex items-center gap-1.5">
           <button
             type="button"
             onClick={onBackToMenu}
-            className="px-3 py-1.5 bg-black/65 hover:bg-black/85 border border-white/20 text-xs font-semibold text-white transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
+            className="px-2.5 sm:px-3 py-1.5 bg-black/65 hover:bg-black/85 border border-white/20 text-xs font-semibold text-white transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap min-h-[36px]"
           >
             <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
-            Menu
+            <span>Menu</span>
           </button>
         </div>
 
-        <div className="mx-auto flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-full bg-white text-[#0b0d12] flex flex-col items-center justify-center shadow-lg shrink-0 border-2 border-white/80">
-            <span className="font-display font-extrabold italic text-sm leading-none tracking-tight">
-              UFC
+        <div className="mx-auto flex items-center gap-2 sm:gap-3.5 min-w-0">
+          <div className="hidden sm:flex px-2.5 py-1 bg-white text-[#0b0d12] items-center justify-center shadow-lg shrink-0 gap-1">
+            <span className="font-display font-extrabold italic text-xs lg:text-sm leading-none tracking-tight">
+              OFC
             </span>
-            <span className="text-[6px] font-bold tracking-widest uppercase leading-none mt-0.5">
-              SB
+            <span className="font-display font-extrabold italic text-xs lg:text-sm text-[#d92626] leading-none">
+              6
             </span>
           </div>
-          <h1 className="font-display font-extrabold italic text-3xl sm:text-4xl tracking-tight text-white uppercase leading-none hud-text-stroke">
+          <h1 className="font-display font-extrabold italic text-xl sm:text-3xl lg:text-4xl tracking-tight text-white uppercase leading-none hud-text-stroke truncate">
             FIGHTER SELECT
           </h1>
         </div>
 
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div className="pointer-events-auto flex items-center gap-1.5 shrink-0">
           <button
             type="button"
             onClick={onOpenControls}
-            className="px-3 py-1.5 bg-black/65 hover:bg-black/85 border border-white/20 text-xs font-semibold text-white transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
+            className="px-2.5 sm:px-3 py-1.5 bg-black/65 hover:bg-black/85 border border-white/20 text-xs font-semibold text-white transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap min-h-[36px]"
           >
             <SlidersHorizontal className="w-3.5 h-3.5" aria-hidden="true" />
-            Controls
+            <span>Controls</span>
           </button>
         </div>
       </div>
 
-      {/* LOWER SECTION */}
-      <div className="relative z-10 w-full max-w-[1380px] mx-auto px-4 sm:px-6 pb-3 flex flex-col gap-2">
+      {/* MOBILE / TABLET DEDICATED FIGHTER SELECT TRAY (< lg) */}
+      <div className="relative z-10 flex lg:hidden flex-col gap-1.5 w-full max-w-[920px] mx-auto px-2.5 sm:px-4 pb-2.5 pointer-events-auto">
+        {/* Corner Picker Tabs */}
+        <div
+          className="grid grid-cols-2 gap-1.5"
+          role="tablist"
+          aria-label="Corner Selection Tabs"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileCorner === 'red'}
+            onClick={() => setMobileCorner('red')}
+            className={`text-left px-2.5 py-1.5 border transition-colors cursor-pointer ${
+              mobileCorner === 'red'
+                ? 'bg-[#2a0e10]/95 border-[#ff4838] ring-1 ring-[#ff4838]/60'
+                : 'bg-[#0c0e14]/85 border-white/15 opacity-80'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-1 text-[9px] font-bold uppercase tracking-wider">
+              <span className="text-[#ff5d47]">Red · You</span>
+              <span className="font-mono-tabular text-white/60">
+                {redFighter.stats.power}/{redFighter.stats.speed}/{redFighter.stats.chin}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-1.5 mt-0.5">
+              <span className="font-display font-extrabold italic text-base sm:text-lg uppercase text-white leading-none truncate">
+                {redFighter.name}
+              </span>
+              {mobileCorner === 'red' && (
+                <span className="text-[9px] font-extrabold uppercase text-[#ff8e1c] shrink-0">
+                  Picking
+                </span>
+              )}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileCorner === 'blue'}
+            onClick={() => setMobileCorner('blue')}
+            className={`text-right px-2.5 py-1.5 border transition-colors cursor-pointer ${
+              mobileCorner === 'blue'
+                ? 'bg-[#0e1b30]/95 border-[#3b8eff] ring-1 ring-[#3b8eff]/60'
+                : 'bg-[#0c0e14]/85 border-white/15 opacity-80'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-1 text-[9px] font-bold uppercase tracking-wider">
+              <span className="font-mono-tabular text-white/60">
+                {blueFighter.stats.power}/{blueFighter.stats.speed}/{blueFighter.stats.chin}
+              </span>
+              <span className="text-[#54a6ff]">Blue · CPU</span>
+            </div>
+            <div className="flex items-center justify-between gap-1.5 mt-0.5">
+              {mobileCorner === 'blue' ? (
+                <span className="text-[9px] font-extrabold uppercase text-[#54a6ff] shrink-0">
+                  Picking
+                </span>
+              ) : (
+                <span />
+              )}
+              <span className="font-display font-extrabold italic text-base sm:text-lg uppercase text-white leading-none truncate">
+                {blueFighter.name}
+              </span>
+            </div>
+          </button>
+        </div>
+
+        {/* Weight Filter + Arcade/Simulation Mode Row */}
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1 overflow-x-auto" role="group" aria-label="Weight Division Filter">
+            {FILTER_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                aria-pressed={rosterFilter === opt.id}
+                onClick={() => setRosterFilter(opt.id)}
+                className={`px-2 py-1 text-[9px] font-bold uppercase whitespace-nowrap border cursor-pointer ${
+                  rosterFilter === opt.id
+                    ? 'bg-white text-[#0b0d12] border-white'
+                    : 'bg-[#0e1017]/90 text-white/70 border-white/15'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="grid grid-cols-2 bg-[#0e1017] border border-white/20 p-0.5 gap-0.5 shrink-0"
+            role="group"
+            aria-label="Mobile Gameplay Mode"
+          >
+            {(
+              [
+                { id: 'arcade' as const, label: 'Arcade' },
+                { id: 'simulation' as const, label: 'Sim' },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                aria-pressed={gameplayMode === m.id}
+                onClick={() => onSelectGameplayMode(m.id)}
+                className={`px-2.5 py-1 text-[9px] font-extrabold uppercase cursor-pointer ${
+                  gameplayMode === m.id
+                    ? 'bg-[#ff8e1c] text-[#090a0d]'
+                    : 'text-white/65 hover:text-white'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Scrollable Clean Mobile Roster Grid (4-col portrait / 7-col landscape) */}
+        <div
+          className="h-[172px] sm:h-[116px] overflow-y-auto pr-0.5"
+          role="tabpanel"
+          aria-label={
+            mobileCorner === 'red'
+              ? 'Select Fighter for Red Corner'
+              : 'Select Fighter for Blue Corner'
+          }
+        >
+          <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+            {filteredRoster.map((f) => {
+              const isRed = f.id === redId;
+              const isBlue = f.id === blueId;
+              const isActiveSelection =
+                (mobileCorner === 'red' && isRed) ||
+                (mobileCorner === 'blue' && isBlue);
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  aria-label={`Select ${f.name} for ${mobileCorner === 'red' ? 'Red' : 'Blue'} Corner`}
+                  aria-pressed={isActiveSelection}
+                  onClick={() =>
+                    mobileCorner === 'red' ? onSelectRed(f.id) : onSelectBlue(f.id)
+                  }
+                  className={`relative overflow-hidden bg-[#141720] border cursor-pointer text-left transition-transform active:scale-[0.97] ${
+                    isActiveSelection
+                      ? mobileCorner === 'red'
+                        ? 'border-2 border-[#ff4838] ring-1 ring-white/80 z-10'
+                        : 'border-2 border-[#3b8eff] ring-1 ring-white/80 z-10'
+                      : isRed || isBlue
+                        ? 'border-white/55'
+                        : 'border-white/20 opacity-85'
+                  }`}
+                >
+                  <img
+                    src={portraits[f.id]}
+                    alt={f.name}
+                    className="w-full h-11 sm:h-10 object-cover object-top block"
+                  />
+                  <div className="bg-[#090a0e]/95 px-1 py-0.5 flex items-center justify-between gap-0.5">
+                    <span className="font-display font-bold text-[10px] tracking-wide uppercase text-white truncate">
+                      {f.lastName}
+                    </span>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {isRed && (
+                        <span className="w-3 h-3 rounded-full bg-[#e02424] text-white text-[7px] font-extrabold flex items-center justify-center">
+                          R
+                        </span>
+                      )}
+                      {isBlue && (
+                        <span className="w-3 h-3 rounded-full bg-[#2563eb] text-white text-[7px] font-extrabold flex items-center justify-center">
+                          B
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Sticky Mobile Action Footer */}
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 pt-0.5">
+          <div className="flex-1 min-w-[200px]">
+            <div
+              className="grid grid-cols-5 bg-[#0e1017] border border-white/20 p-0.5 gap-0.5"
+              role="group"
+              aria-label="Mobile AI Difficulty"
+            >
+              {(
+                ['rookie', 'pro', 'champion', 'hallOfFamer', 'legend'] as const
+              ).map((lvl) => (
+                <button
+                  key={lvl}
+                  type="button"
+                  aria-label={`${DIFFICULTY_LEVELS[lvl].label} difficulty`}
+                  aria-pressed={difficulty === lvl}
+                  onClick={() => onSelectDifficulty(lvl)}
+                  className={`py-2 text-[10px] font-bold uppercase transition-colors cursor-pointer ${
+                    difficulty === lvl
+                      ? 'bg-[#f4c038] text-[#0b0d12]'
+                      : 'text-white/65 hover:text-white'
+                  }`}
+                >
+                  {DIFFICULTY_LEVELS[lvl].shortLabel}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={onRandomize}
+              aria-label="Randomize Matchup"
+              className="py-2.5 px-3 bg-[#151822] hover:bg-[#222736] text-white border border-white/20 cursor-pointer shrink-0 flex items-center justify-center"
+            >
+              <Shuffle className="w-4 h-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              data-start="true"
+              onClick={onStartFight}
+              className="flex-1 sm:flex-none sm:min-w-[165px] py-2.5 px-4 bg-[#d92626] hover:bg-[#ef3333] text-white font-display font-extrabold text-base tracking-wider uppercase cursor-pointer flex items-center justify-center gap-1.5 shadow-lg border border-[#ff705c]/45 whitespace-nowrap"
+            >
+              <Play className="w-4 h-4 fill-current" aria-hidden="true" />
+              <span>Enter Fight</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* DESKTOP LOWER SECTION (lg+) */}
+      <div className="relative z-10 hidden lg:flex w-full max-w-[1380px] mx-auto px-6 pb-3 flex-col gap-2">
         {/* Corner Nameplates */}
         <div className="flex items-end justify-between gap-4">
           <div className="max-w-[360px]">
@@ -497,11 +543,11 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
                   Champion
                 </span>
               )}
-              <span className="font-display font-bold text-lg sm:text-xl tracking-wider uppercase text-white/95 leading-none hud-text-stroke">
+              <span className="font-display font-bold text-xl tracking-wider uppercase text-white/95 leading-none hud-text-stroke">
                 {redFighter.firstName}
               </span>
             </div>
-            <h2 className="font-display font-extrabold italic text-4xl sm:text-5xl text-white uppercase leading-[0.88] tracking-tight hud-text-stroke">
+            <h2 className="font-display font-extrabold italic text-5xl text-white uppercase leading-[0.88] tracking-tight hud-text-stroke">
               {redFighter.lastName}
             </h2>
             <div className="h-[4px] w-full bg-gradient-to-r from-[#e02424] via-[#dc2626] to-transparent mt-1 mb-1" />
@@ -519,11 +565,11 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
           <div className="flex items-end gap-3 text-right max-w-[420px]">
             <div>
               <div className="flex items-center justify-end gap-2 mb-0.5">
-                <span className="font-display font-bold text-lg sm:text-xl tracking-wider uppercase text-white/95 leading-none hud-text-stroke">
+                <span className="font-display font-bold text-xl tracking-wider uppercase text-white/95 leading-none hud-text-stroke">
                   {blueFighter.firstName}
                 </span>
               </div>
-              <h2 className="font-display font-extrabold italic text-4xl sm:text-5xl text-white uppercase leading-[0.88] tracking-tight hud-text-stroke">
+              <h2 className="font-display font-extrabold italic text-5xl text-white uppercase leading-[0.88] tracking-tight hud-text-stroke">
                 {blueFighter.lastName}
               </h2>
               <div className="h-[4px] w-full bg-gradient-to-l from-[#2563eb] via-[#2563eb] to-transparent mt-1 mb-1" />
@@ -538,88 +584,150 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
               </div>
             </div>
             {blueFighter.isChampion && (
-              <div className="hidden sm:block mb-1">
+              <div className="mb-1">
                 <ChampSealBadge />
               </div>
             )}
           </div>
         </div>
 
-        {/* 2x6 ROSTER GRIDS + CENTER VS / DIFFICULTY / ENTER FIGHT */}
-        <div className="pointer-events-auto grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-end">
-          {/* LEFT 2x6 PORTRAIT GRID */}
-          <div className="lg:col-span-5">
+        {/* DESKTOP WEIGHT DIVISION FILTER STRIP */}
+        <div className="pointer-events-auto flex items-center justify-center gap-1.5">
+          {FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              aria-pressed={rosterFilter === opt.id}
+              onClick={() => setRosterFilter(opt.id)}
+              className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider border cursor-pointer transition-colors ${
+                rosterFilter === opt.id
+                  ? 'bg-white text-[#0b0d12] border-white'
+                  : 'bg-[#0e1017]/90 text-white/65 border-white/15 hover:text-white'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* SCROLLABLE 28-FIGHTER ROSTER GRIDS + CENTER VS / MODE / DIFFICULTY / ENTER FIGHT */}
+        <div className="pointer-events-auto grid grid-cols-12 gap-4 items-end">
+          {/* LEFT SCROLLABLE PORTRAIT GRID */}
+          <div className="col-span-5">
             <div className="flex items-center justify-between text-[11px] font-bold tracking-widest uppercase text-white/75 mb-1 px-0.5">
               <span className="text-[#ff5d47]">Red Corner · You</span>
               <span className="text-white/55 font-mono-tabular">
                 PWR {redFighter.stats.power} · SPD {redFighter.stats.speed} · CHN {redFighter.stats.chin}
               </span>
             </div>
-            <div className="grid grid-cols-4 sm:grid-cols-6 gap-1">
-              {UFC_ROSTER.map((f) => {
-                const selected = f.id === redId;
-                return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    aria-label={`Select ${f.name} for Red Corner`}
-                    aria-pressed={selected}
-                    onClick={() => onSelectRed(f.id)}
-                    className={`group relative overflow-hidden bg-[#141720] border transition-transform cursor-pointer text-left ${
-                      selected
-                        ? 'border-2 border-[#ff4838] ring-1 ring-white/80 scale-[1.04] z-10'
-                        : 'border-white/20 hover:border-white/60 opacity-85 hover:opacity-100'
-                    }`}
-                  >
-                    <img
-                      src={portraits[f.id]}
-                      alt={f.name}
-                      className="w-full h-12 sm:h-14 object-cover object-center block"
-                    />
-                    <div className="bg-[#090a0e]/92 px-1 py-0.5 flex items-center justify-between">
-                      <span className="font-display font-bold text-[9px] tracking-wide uppercase text-white truncate">
-                        {f.lastName}
-                      </span>
-                      {selected && (
-                        <span className="w-2.5 h-2.5 rounded-full bg-[#e02424] text-white text-[7px] font-bold flex items-center justify-center shrink-0">
-                          R
+            <div className="max-h-[156px] overflow-y-auto pr-0.5">
+              <div className="grid grid-cols-7 gap-1">
+                {filteredRoster.map((f) => {
+                  const selected = f.id === redId;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      aria-label={`Select ${f.name} for Red Corner`}
+                      aria-pressed={selected}
+                      onClick={() => onSelectRed(f.id)}
+                      className={`group relative overflow-hidden bg-[#141720] border transition-transform cursor-pointer text-left ${
+                        selected
+                          ? 'border-2 border-[#ff4838] ring-1 ring-white/80 z-10'
+                          : 'border-white/20 hover:border-white/60 opacity-85 hover:opacity-100'
+                      }`}
+                    >
+                      <img
+                        src={portraits[f.id]}
+                        alt={f.name}
+                        className="w-full h-12 object-cover object-center block"
+                      />
+                      <div className="bg-[#090a0e]/92 px-1 py-0.5 flex items-center justify-between">
+                        <span className="font-display font-bold text-[9px] tracking-wide uppercase text-white truncate">
+                          {f.lastName}
                         </span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+                        {selected && (
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#e02424] text-white text-[7px] font-bold flex items-center justify-center shrink-0">
+                            R
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
-          {/* CENTER VS + ENTER FIGHT */}
-          <div className="lg:col-span-2 flex flex-col items-center justify-end gap-2 text-center pb-0.5">
-            <div className="text-[10px] font-bold tracking-widest uppercase text-white/75 leading-tight">
-              {redFighter.weightClass.split('·')[0].trim()}
-              <div className="text-[9px] text-white/45 font-medium">
-                MAIN EVENT · OCTAGON
-              </div>
-            </div>
-
-            <div className="font-display font-extrabold italic text-3xl leading-none tracking-tighter bg-gradient-to-b from-white via-slate-300 to-slate-500 bg-clip-text text-transparent select-none">
+          {/* CENTER VS + GAMEPLAY MODE + DIFFICULTY + ENTER FIGHT */}
+          <div className="col-span-2 flex flex-col items-center justify-end gap-1.5 text-center pb-0.5">
+            <div className="font-display font-extrabold italic text-2xl leading-none tracking-tighter bg-gradient-to-b from-white via-slate-300 to-slate-500 bg-clip-text text-transparent select-none">
               VS
             </div>
 
-            <div className="w-full grid grid-cols-3 bg-[#0e1017] border border-white/20 p-0.5">
-              {(['pro', 'champion', 'legend'] as const).map((lvl) => (
-                <button
-                  key={lvl}
-                  type="button"
-                  onClick={() => onSelectDifficulty(lvl)}
-                  className={`py-1 text-[10px] font-bold uppercase transition-colors cursor-pointer ${
-                    difficulty === lvl
-                      ? 'bg-white text-[#0b0d12]'
-                      : 'text-white/60 hover:text-white'
-                  }`}
-                >
-                  {lvl}
-                </button>
-              ))}
+            {/* Gameplay Pace Mode: Arcade vs Simulation */}
+            <div className="w-full">
+              <div
+                className="w-full grid grid-cols-2 bg-[#0e1017] border border-white/20 p-0.5 gap-0.5"
+                role="group"
+                aria-label="Gameplay Mode"
+              >
+                {(
+                  [
+                    { id: 'arcade' as const, label: 'Arcade' },
+                    { id: 'simulation' as const, label: 'Simulation' },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    aria-pressed={gameplayMode === m.id}
+                    onClick={() => onSelectGameplayMode(m.id)}
+                    className={`py-1 text-[10px] font-extrabold uppercase transition-colors cursor-pointer ${
+                      gameplayMode === m.id
+                        ? 'bg-[#ff8e1c] text-[#0b0d12]'
+                        : 'text-white/65 hover:text-white'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              {gameplayMode === 'simulation' && (
+                <div className="text-[9px] text-[#ff8e1c]/90 font-medium mt-0.5 leading-tight">
+                  Tactical pace · Slower footwork &amp; stamina regen
+                </div>
+              )}
+            </div>
+
+            <div className="w-full">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-[#f4c038] mb-0.5">
+                {DIFFICULTY_LEVELS[difficulty].label} AI
+              </div>
+              <div
+                className="w-full grid grid-cols-5 bg-[#0e1017] border border-white/20 p-0.5 gap-0.5"
+                role="group"
+                aria-label="AI Difficulty"
+              >
+                {(
+                  ['rookie', 'pro', 'champion', 'hallOfFamer', 'legend'] as const
+                ).map((lvl) => (
+                  <button
+                    key={lvl}
+                    type="button"
+                    aria-label={`${DIFFICULTY_LEVELS[lvl].label} difficulty`}
+                    aria-pressed={difficulty === lvl}
+                    onClick={() => onSelectDifficulty(lvl)}
+                    className={`py-1 text-[10px] font-bold uppercase transition-colors cursor-pointer ${
+                      difficulty === lvl
+                        ? 'bg-white text-[#0b0d12]'
+                        : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    {DIFFICULTY_LEVELS[lvl].shortLabel}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="w-full flex items-center gap-1.5">
@@ -644,48 +752,50 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             </div>
           </div>
 
-          {/* RIGHT 2x6 PORTRAIT GRID */}
-          <div className="lg:col-span-5">
+          {/* RIGHT SCROLLABLE PORTRAIT GRID */}
+          <div className="col-span-5">
             <div className="flex items-center justify-between text-[11px] font-bold tracking-widest uppercase text-white/75 mb-1 px-0.5">
               <span className="text-white/55 font-mono-tabular">
                 PWR {blueFighter.stats.power} · SPD {blueFighter.stats.speed} · CHN {blueFighter.stats.chin}
               </span>
               <span className="text-[#4ea2ff]">Blue Corner · Opponent</span>
             </div>
-            <div className="grid grid-cols-4 sm:grid-cols-6 gap-1">
-              {UFC_ROSTER.map((f) => {
-                const selected = f.id === blueId;
-                return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    aria-label={`Select ${f.name} for Blue Corner`}
-                    aria-pressed={selected}
-                    onClick={() => onSelectBlue(f.id)}
-                    className={`group relative overflow-hidden bg-[#141720] border transition-transform cursor-pointer text-left ${
-                      selected
-                        ? 'border-2 border-[#3b8eff] ring-1 ring-white/80 scale-[1.04] z-10'
-                        : 'border-white/20 hover:border-white/60 opacity-85 hover:opacity-100'
-                    }`}
-                  >
-                    <img
-                      src={portraits[f.id]}
-                      alt={f.name}
-                      className="w-full h-12 sm:h-14 object-cover object-center block"
-                    />
-                    <div className="bg-[#090a0e]/92 px-1 py-0.5 flex items-center justify-between">
-                      <span className="font-display font-bold text-[9px] tracking-wide uppercase text-white truncate">
-                        {f.lastName}
-                      </span>
-                      {selected && (
-                        <span className="w-2.5 h-2.5 rounded-full bg-[#2563eb] text-white text-[7px] font-bold flex items-center justify-center shrink-0">
-                          B
+            <div className="max-h-[156px] overflow-y-auto pr-0.5">
+              <div className="grid grid-cols-7 gap-1">
+                {filteredRoster.map((f) => {
+                  const selected = f.id === blueId;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      aria-label={`Select ${f.name} for Blue Corner`}
+                      aria-pressed={selected}
+                      onClick={() => onSelectBlue(f.id)}
+                      className={`group relative overflow-hidden bg-[#141720] border transition-transform cursor-pointer text-left ${
+                        selected
+                          ? 'border-2 border-[#3b8eff] ring-1 ring-white/80 z-10'
+                          : 'border-white/20 hover:border-white/60 opacity-85 hover:opacity-100'
+                      }`}
+                    >
+                      <img
+                        src={portraits[f.id]}
+                        alt={f.name}
+                        className="w-full h-12 object-cover object-center block"
+                      />
+                      <div className="bg-[#090a0e]/92 px-1 py-0.5 flex items-center justify-between">
+                        <span className="font-display font-bold text-[9px] tracking-wide uppercase text-white truncate">
+                          {f.lastName}
                         </span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+                        {selected && (
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#2563eb] text-white text-[7px] font-bold flex items-center justify-center shrink-0">
+                            B
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -695,8 +805,8 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
           <div className="px-2 py-0.5 bg-[#9e1a1a]/35 border-l-2 border-[#e02424] text-white/85 font-semibold uppercase tracking-wider">
             You · {redFighter.name}
           </div>
-          <div className="hidden sm:block tracking-wide text-white/65">
-            Enter Fight · R Randomize · Esc Back · C Controls · WASD + J/I/K/L + Shift/Ctrl + Gamepad
+          <div className="tracking-wide text-white/65">
+            Enter Fight · R Randomize · Esc Back · C Controls · {UFC_ROSTER.length} UFC Fighters
           </div>
           <div className="px-2 py-0.5 bg-[#184f96]/35 border-r-2 border-[#3b8eff] text-white/85 font-semibold uppercase tracking-wider">
             CPU · {blueFighter.name}

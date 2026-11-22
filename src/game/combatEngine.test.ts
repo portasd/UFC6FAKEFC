@@ -202,8 +202,8 @@ test('180ms input buffer queues and blends multi-strike combo without resetting 
     getFighterById('holloway'),
     getFighterById('jung'),
   );
-  bout.fighters[0].x = -0.62;
-  bout.fighters[1].x = 0.62;
+  bout.fighters[0].x = -0.52;
+  bout.fighters[1].x = 0.52;
 
   let returnedToIdleMidCombo = false;
   const dt = 1 / 60;
@@ -361,5 +361,217 @@ test('directional lunge bursts fighter across octagon', () => {
   assert.ok(
     bout.fighters[0].x - startX > 0.45,
     'Directional forward lunge should cover significant octagon distance rapidly',
+  );
+});
+
+test('5 difficulty tiers configure distinct AI speed, evade skill, and cooldown scaling', async () => {
+  const { DIFFICULTY_LEVELS } = await import('./combatEngine');
+  const tiers = ['rookie', 'pro', 'champion', 'hallOfFamer', 'legend'] as const;
+  for (let i = 1; i < tiers.length; i++) {
+    const prev = DIFFICULTY_LEVELS[tiers[i - 1]];
+    const curr = DIFFICULTY_LEVELS[tiers[i]];
+    assert.ok(curr.diffMult > prev.diffMult, `${curr.id} should scale diffMult above ${prev.id}`);
+    assert.ok(curr.evadeSkill > prev.evadeSkill, `${curr.id} should evade more skillfully than ${prev.id}`);
+    assert.ok(curr.cooldownScale < prev.cooldownScale, `${curr.id} should attack faster than ${prev.id}`);
+  }
+  const rookieBout = createBoutState(getFighterById('holloway'), getFighterById('mcgregor'), 'rookie');
+  const hofBout = createBoutState(getFighterById('holloway'), getFighterById('mcgregor'), 'hallOfFamer');
+  assert.equal(rookieBout.difficulty, 'rookie');
+  assert.equal(hofBout.difficulty, 'hallOfFamer');
+});
+
+test('head strikes record hitReactSide for directional skeletal recoil', () => {
+  const bout = createBoutState(
+    getFighterById('mcgregor'),
+    getFighterById('poirier'),
+  );
+  bout.fighters[0].x = -0.6;
+  bout.fighters[1].x = 0.6;
+
+  advanceSeconds(bout, 0.4, (t) => [
+    t < 0.02 ? { ...idleInput(), requestedStrike: 'jab' } : idleInput(),
+    idleInput(),
+  ]);
+
+  assert.notEqual(
+    bout.fighters[1].hitReactSide,
+    0,
+    'Clean strike should set non-zero directional hitReactSide (-1 or 1)',
+  );
+});
+
+test('swept active-frame hit detection catches fast strikes even at coarse 20fps frame steps', () => {
+  const bout = createBoutState(
+    getFighterById('holloway'),
+    getFighterById('jung'),
+  );
+  bout.fighters[0].x = -0.6;
+  bout.fighters[1].x = 0.6;
+
+  // Step at coarse dt=0.05s (20fps) and verify fast jab never skips its ~0.07s active window
+  const dt = 0.05;
+  let hit = false;
+  for (let i = 0; i < 12; i++) {
+    const evs = stepBout(
+      bout,
+      [i === 0 ? { ...idleInput(), requestedStrike: 'jab' } : idleInput(), idleInput()],
+      dt,
+    );
+    if (evs.some((e) => e.type === 'hit')) {
+      hit = true;
+      break;
+    }
+  }
+  assert.ok(hit, 'Fast jab must register hit even at coarse 50ms frame intervals');
+});
+
+test('arcing hook connects on slightly offset opponent inside anatomical capsule', () => {
+  const bout = createBoutState(
+    getFighterById('pereira'),
+    getFighterById('adesanya'),
+  );
+  bout.fighters[0].x = -0.55;
+  bout.fighters[1].x = 0.55;
+  // Slightly circle opponent off-centerline
+  bout.fighters[1].z = 0.34;
+
+  const events = advanceSeconds(bout, 0.45, (t) => [
+    t < 0.02 ? { ...idleInput(), requestedStrike: 'leadHook' } : idleInput(),
+    idleInput(),
+  ]);
+
+  assert.ok(
+    events.some((e) => e.type === 'hit'),
+    'Sweeping lead hook should catch laterally circling opponent within anatomical capsule',
+  );
+});
+
+test('pull-back evades head strike at range while leaving body target vulnerable to body kick', () => {
+  const bout = createBoutState(
+    getFighterById('adesanya'),
+    getFighterById('mcgregor'),
+  );
+  bout.fighters[0].x = -0.78;
+  bout.fighters[1].x = 0.78;
+
+  const events = advanceSeconds(bout, 0.5, (t) => [
+    t < 0.02 ? { ...idleInput(), requestedStrike: 'bodyKick' } : idleInput(),
+    t >= 0.12 && t < 0.16 ? { ...idleInput(), requestedEvade: 'pullBack' } : idleInput(),
+  ]);
+
+  assert.ok(
+    events.some((e) => e.type === 'hit' && e.zone === 'body'),
+    'Body kick should punish defender leaning head back with pullBack',
+  );
+});
+
+test('fighters start 4.9m apart at the opening bell', () => {
+  const bout = createBoutState(
+    getFighterById('holloway'),
+    getFighterById('mcgregor'),
+  );
+  const gap = bout.fighters[1].x - bout.fighters[0].x;
+  assert.ok(gap >= 4.8, `Expected >= 4.8m opening separation, got ${gap}`);
+});
+
+test('simulation mode slows gameplay pace, movement speed, and stamina regeneration', () => {
+  const arcBout = createBoutState(
+    getFighterById('holloway'),
+    getFighterById('mcgregor'),
+    'champion',
+    false,
+  );
+  const simBout = createBoutState(
+    getFighterById('holloway'),
+    getFighterById('mcgregor'),
+    'champion',
+    true,
+  );
+
+  arcBout.fighters[0].stamina = 40;
+  simBout.fighters[0].stamina = 40;
+
+  const arcStartX = arcBout.fighters[0].x;
+  const simStartX = simBout.fighters[0].x;
+
+  advanceSeconds(arcBout, 0.5, () => [
+    { ...idleInput(), moveZ: 1 },
+    idleInput(),
+  ]);
+  advanceSeconds(simBout, 0.5, () => [
+    { ...idleInput(), moveZ: 1 },
+    idleInput(),
+  ]);
+
+  const arcMoved = arcBout.fighters[0].x - arcStartX;
+  const simMoved = simBout.fighters[0].x - simStartX;
+  assert.ok(
+    simMoved < arcMoved * 0.78,
+    `Expected simulation move (${simMoved.toFixed(3)}) < arcade move (${arcMoved.toFixed(3)})`,
+  );
+
+  const arcStamGained = arcBout.fighters[0].stamina - 40;
+  const simStamGained = simBout.fighters[0].stamina - 40;
+  assert.ok(
+    simStamGained < arcStamGained * 0.72,
+    `Expected simulation stamina gain (${simStamGained.toFixed(2)}) < arcade stamina gain (${arcStamGained.toFixed(2)})`,
+  );
+  assert.ok(
+    simBout.roundTimeRemaining > arcBout.roundTimeRemaining,
+    'Simulation mode should tick round clock slightly slower',
+  );
+});
+
+test('knockout assigns distinct koStyle by finishing strike', () => {
+  const makeKoBout = (strike: NonNullable<FighterInput['requestedStrike']>) => {
+    const bout = createBoutState(
+      getFighterById('pereira'),
+      getFighterById('jung'),
+    );
+    bout.fighters[0].x = -0.58;
+    bout.fighters[1].x = 0.58;
+    bout.fighters[1].headHp = 6;
+    advanceSeconds(bout, 0.5, (t) => [
+      t < 0.02 ? { ...idleInput(), requestedStrike: strike } : idleInput(),
+      idleInput(),
+    ]);
+    return bout;
+  };
+
+  assert.equal(makeKoBout('leadUppercut').fighters[1].koStyle, 'crumple');
+  assert.equal(makeKoBout('leadHook').fighters[1].koStyle, 'twisted');
+  assert.equal(makeKoBout('cross').fighters[1].koStyle, 'backward');
+});
+
+test('punches and kicks thrown from far away whiff without phantom hits', () => {
+  const bout = createBoutState(
+    getFighterById('holloway'),
+    getFighterById('mcgregor'),
+  );
+  // Standing 1.85m apart is visually outside realistic striking range even with lunge
+  bout.fighters[0].x = -0.925;
+  bout.fighters[1].x = 0.925;
+
+  const punchEvents = advanceSeconds(bout, 0.45, (t) => [
+    t < 0.02 ? { ...idleInput(), requestedStrike: 'cross' } : idleInput(),
+    idleInput(),
+  ]);
+  assert.equal(
+    punchEvents.some((e) => e.type === 'hit'),
+    false,
+    'Cross from 1.85m away should whiff',
+  );
+
+  // Reset distance to 1.95m and verify head kick also whiffs cleanly
+  bout.fighters[0].x = -0.975;
+  bout.fighters[1].x = 0.975;
+  const kickEvents = advanceSeconds(bout, 0.55, (t) => [
+    t < 0.02 ? { ...idleInput(), requestedStrike: 'headKick' } : idleInput(),
+    idleInput(),
+  ]);
+  assert.equal(
+    kickEvents.some((e) => e.type === 'hit'),
+    false,
+    'Head kick from 1.95m away should whiff cleanly',
   );
 });

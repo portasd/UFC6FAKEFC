@@ -1524,51 +1524,58 @@ function getStanceGuardPose(
 ): PoseAngles {
   const s = stance === 'orthodox' ? 1 : -1;
   const moveBlend = Math.min(1, speed / 2.2);
-  const bounce = Math.sin(timeSec * 5.8) * 0.015;
-  const weave = Math.sin(timeSec * 2.9) * 0.045;
+  const bounce = Math.sin(timeSec * 6.2) * 0.017;
+  const breath = Math.sin(timeSec * 2.4) * 0.016;
+  const weightShift = Math.sin(timeSec * 3.1) * 0.04;
   const stride = Math.sin(gaitPhase) * moveBlend;
   const kneeLift = Math.max(0, Math.cos(gaitPhase)) * moveBlend;
 
   const pose = createZeroPose();
-  pose.pelvisY = 0.905 + bounce - moveBlend * 0.018;
-  pose.pelvisRotY = -0.38 * s + stride * 0.08;
-  pose.abdomenRotX = 0.1 + Math.abs(weave) * 0.2;
-  pose.abdomenRotZ = weave * 0.4;
-  pose.chestRotX = 0.09;
-  pose.chestRotY = -0.15 * s;
-  pose.chestRotZ = weave * 0.35;
-  pose.headRotX = -0.14;
-  pose.headRotY = 0.44 * s;
-  pose.headRotZ = -weave * 0.55;
+  pose.pelvisY = 0.902 + bounce - moveBlend * 0.022;
+  pose.pelvisZ = weightShift * 0.35;
+  pose.pelvisRotY = -0.4 * s + stride * 0.1;
+  pose.abdomenRotX = 0.11 + Math.abs(weightShift) * 0.18 + breath;
+  pose.abdomenRotZ = weightShift * 0.38;
+  pose.chestRotX = 0.095 - breath * 0.6;
+  pose.chestRotY = -0.17 * s - stride * 0.05;
+  pose.chestRotZ = weightShift * 0.32;
+  pose.headRotX = -0.15;
+  pose.headRotY = 0.48 * s;
+  pose.headRotZ = -weightShift * 0.5;
 
-  const swayArm = Math.sin(timeSec * 5.8 + 0.6) * 0.035;
+  const swayArm = Math.sin(timeSec * 6.2 + 0.65) * 0.04;
+  const roll = Math.cos(timeSec * 3.1) * 0.025;
 
   if (stance === 'orthodox') {
-    pose.armL = [-0.9 + swayArm, -0.14, -0.22];
-    pose.forearmL = [-1.46 - swayArm * 0.5, 0.12, 0.24];
-    pose.armR = [-0.78 - swayArm, 0.14, 0.24];
-    pose.forearmR = [-1.72 + swayArm * 0.5, -0.12, -0.2];
+    pose.clavicleL = [0.04, 0.06, -0.05];
+    pose.clavicleR = [0.02, -0.04, 0.04];
+    pose.armL = [-0.94 + swayArm, -0.15 + roll, -0.23];
+    pose.forearmL = [-1.5 - swayArm * 0.55, 0.14, 0.25];
+    pose.armR = [-0.82 - swayArm, 0.16 - roll, 0.25];
+    pose.forearmR = [-1.76 + swayArm * 0.55, -0.14, -0.22];
 
-    pose.thighL = [-0.3 + stride * 0.26 - kneeLift * 0.12, 0.08, -0.07];
-    pose.shinL = [0.36 - stride * 0.08 + kneeLift * 0.18, 0, 0];
-    pose.footL = [-0.08, 0, 0];
+    pose.thighL = [-0.32 + stride * 0.28 - kneeLift * 0.14, 0.1, -0.08];
+    pose.shinL = [0.38 - stride * 0.08 + kneeLift * 0.2, 0, 0];
+    pose.footL = [-0.08 + kneeLift * 0.06, 0.08, 0];
 
-    pose.thighR = [0.24 - stride * 0.26, -0.1, 0.08];
-    pose.shinR = [0.28 + stride * 0.12, 0, 0];
-    pose.footR = [-0.15, 0, 0];
+    pose.thighR = [0.24 - stride * 0.28, -0.12, 0.09];
+    pose.shinR = [0.3 + stride * 0.14, 0, 0];
+    pose.footR = [-0.21 - bounce * 1.4, -0.12, 0];
   } else {
-    pose.armR = [-0.9 + swayArm, 0.14, 0.22];
-    pose.forearmR = [-1.46 - swayArm * 0.5, -0.12, -0.24];
-    pose.armL = [-0.78 - swayArm, -0.14, -0.24];
-    pose.forearmL = [-1.72 + swayArm * 0.5, 0.12, 0.2];
+    pose.clavicleR = [0.04, -0.06, 0.05];
+    pose.clavicleL = [0.02, 0.04, -0.04];
+    pose.armR = [-0.94 + swayArm, 0.15 - roll, 0.23];
+    pose.forearmR = [-1.5 - swayArm * 0.55, -0.14, -0.25];
+    pose.armL = [-0.82 - swayArm, -0.16 + roll, -0.25];
+    pose.forearmL = [-1.76 + swayArm * 0.55, 0.14, 0.22];
 
-    pose.thighR = [-0.3 + stride * 0.26 - kneeLift * 0.12, -0.08, 0.07];
-    pose.shinR = [0.36 - stride * 0.08 + kneeLift * 0.18, 0, 0];
-    pose.footR = [-0.08, 0, 0];
+    pose.thighR = [-0.32 + stride * 0.28 - kneeLift * 0.14, -0.1, 0.08];
+    pose.shinR = [0.38 - stride * 0.08 + kneeLift * 0.2, 0, 0];
+    pose.footR = [-0.08 + kneeLift * 0.06, -0.08, 0];
 
-    pose.thighL = [0.24 - stride * 0.26, 0.1, -0.08];
-    pose.shinL = [0.28 + stride * 0.12, 0, 0];
-    pose.footL = [-0.15, 0, 0];
+    pose.thighL = [0.24 - stride * 0.28, 0.12, -0.09];
+    pose.shinL = [0.3 + stride * 0.14, 0, 0];
+    pose.footL = [-0.21 - bounce * 1.4, 0.12, 0];
   }
 
   return pose;
@@ -1585,20 +1592,26 @@ function getStrikePose(
   const wEnd = spec.windup / total;
   const aEnd = (spec.windup + spec.active) / total;
 
-  // Fluid kinetic-chain curve: quick coiled chamber -> explosive quintic snap -> smooth recoil
-  let power = 0;
+  // Multi-phase kinetic chain curve:
+  // hipWave drives slightly before torso & arm snap, creating authentic MMA whip!
+  let armPower = 0;
+  let hipPower = 0;
   let chamber = 0;
   if (progress < wEnd) {
     const u = progress / Math.max(0.001, wEnd);
     chamber = Math.sin(u * Math.PI);
-    power = easeInOutCubic(u) * 0.35;
+    hipPower = easeInOutCubic(u) * 0.52;
+    armPower = easeInOutCubic(u) * 0.28;
   } else if (progress <= aEnd) {
     const u = (progress - wEnd) / Math.max(0.001, aEnd - wEnd);
-    power = 0.35 + easeOutQuint(u) * 0.65;
+    hipPower = 0.52 + easeOutQuint(Math.min(1, u * 1.2)) * 0.48;
+    armPower = 0.28 + easeOutQuint(u) * 0.72;
   } else {
     const u = (progress - aEnd) / Math.max(0.001, 1 - aEnd);
-    power = 1 - easeInOutCubic(u);
+    hipPower = 1 - easeInOutCubic(u * 0.92);
+    armPower = 1 - easeInOutCubic(u);
   }
+  const power = armPower;
 
   const s = stance === 'orthodox' ? 1 : -1;
   const p: PoseAngles = {
@@ -1625,58 +1638,100 @@ function getStrikePose(
     if (strikeId === 'jab' || strikeId === 'cross') {
       const isCross = strikeId === 'cross';
       const twistDir = useLeft ? 1 : -1;
-      const coil = -twistDir * 0.18 * chamber * (isCross ? 1.45 : 0.75);
-      p.pelvisRotY = lerp(base.pelvisRotY, twistDir * (isCross ? 0.66 : 0.3), power) + coil * 0.65;
-      p.abdomenRotY = lerp(base.abdomenRotY, twistDir * (isCross ? 0.38 : 0.2), power);
-      p.chestRotY = lerp(base.chestRotY, twistDir * (isCross ? 0.72 : 0.42), power) + coil;
-      p.abdomenRotX = lerp(base.abdomenRotX, isCross ? 0.28 : 0.17, power);
-      p.chestRotX = lerp(base.chestRotX, isCross ? 0.17 : 0.11, power);
-      p.headRotY = lerp(base.headRotY, -twistDir * (isCross ? 0.62 : 0.36), power);
-      p.headRotX = lerp(base.headRotX, -0.24, power); // Chin tucked behind snapping shoulder
-      p.pelvisY = base.pelvisY - power * (isCross ? 0.06 : 0.028);
-      p.pelvisZ = power * (isCross ? 0.09 : 0.05);
+      const coil = -twistDir * 0.2 * chamber * (isCross ? 1.45 : 0.7);
+      p.pelvisRotY =
+        lerp(base.pelvisRotY, twistDir * (isCross ? 0.72 : 0.34), hipPower) +
+        coil * 0.58;
+      p.abdomenRotY = lerp(
+        base.abdomenRotY,
+        twistDir * (isCross ? 0.42 : 0.22),
+        (hipPower + armPower) * 0.5,
+      );
+      p.chestRotY =
+        lerp(base.chestRotY, twistDir * (isCross ? 0.78 : 0.46), power) + coil;
+      p.abdomenRotX = lerp(base.abdomenRotX, isCross ? 0.3 : 0.18, power);
+      p.chestRotX = lerp(base.chestRotX, isCross ? 0.19 : 0.12, power);
+      p.headRotY = lerp(
+        base.headRotY,
+        -twistDir * (isCross ? 0.68 : 0.4),
+        power,
+      );
+      p.headRotX = lerp(base.headRotX, -0.27, power); // Chin tucked inside shoulder pocket
+      p.headRotZ = lerp(base.headRotZ, twistDir * 0.08, power);
+      p.pelvisY = base.pelvisY - hipPower * (isCross ? 0.07 : 0.032);
+      p.pelvisZ = hipPower * (isCross ? 0.11 : 0.06);
 
-      // Procedural shoulder snap & retraction
-      const leadClavSnap: [number, number, number] = [0.1, twistDir * 0.34, twistDir * -0.14];
-      const rearClavPull: [number, number, number] = [-0.05, -twistDir * 0.18, twistDir * 0.08];
+      // Shoulder protraction on striking arm + chin-guard retraction on off arm
+      const leadClavSnap: [number, number, number] = [
+        0.12,
+        twistDir * 0.38,
+        twistDir * -0.15,
+      ];
+      const rearClavPull: [number, number, number] = [
+        -0.06,
+        -twistDir * 0.2,
+        twistDir * 0.09,
+      ];
       if (useLeft) {
         p.clavicleL = [
-          lerp(0, leadClavSnap[0], power),
-          lerp(0, leadClavSnap[1], power),
-          lerp(0, leadClavSnap[2], power),
+          lerp(base.clavicleL[0], leadClavSnap[0], power),
+          lerp(base.clavicleL[1], leadClavSnap[1], power),
+          lerp(base.clavicleL[2], leadClavSnap[2], power),
         ];
         p.clavicleR = [
-          lerp(0, rearClavPull[0], power),
-          lerp(0, rearClavPull[1], power),
-          lerp(0, rearClavPull[2], power),
+          lerp(base.clavicleR[0], rearClavPull[0], power),
+          lerp(base.clavicleR[1], rearClavPull[1], power),
+          lerp(base.clavicleR[2], rearClavPull[2], power),
         ];
       } else {
         p.clavicleR = [
-          lerp(0, leadClavSnap[0], power),
-          lerp(0, leadClavSnap[1], power),
-          lerp(0, leadClavSnap[2], power),
+          lerp(base.clavicleR[0], leadClavSnap[0], power),
+          lerp(base.clavicleR[1], leadClavSnap[1], power),
+          lerp(base.clavicleR[2], leadClavSnap[2], power),
         ];
         p.clavicleL = [
-          lerp(0, rearClavPull[0], power),
-          lerp(0, rearClavPull[1], power),
-          lerp(0, rearClavPull[2], power),
+          lerp(base.clavicleL[0], rearClavPull[0], power),
+          lerp(base.clavicleL[1], rearClavPull[1], power),
+          lerp(base.clavicleL[2], rearClavPull[2], power),
         ];
       }
 
+      // Lower-body weight transfer + ball-of-foot pivot drive
       if (isCross) {
         if (stance === 'orthodox') {
-          p.thighR[0] = lerp(base.thighR[0], 0.36, power);
-          p.footR[0] = lerp(base.footR[0], -0.48, power);
+          p.thighL[0] = lerp(base.thighL[0], -0.46, hipPower);
+          p.shinL[0] = lerp(base.shinL[0], 0.56, hipPower);
+          p.thighR[0] = lerp(base.thighR[0], 0.4, hipPower);
+          p.thighR[1] = lerp(base.thighR[1], -0.34, hipPower);
+          p.footR[0] = lerp(base.footR[0], -0.54, hipPower);
+          p.footR[1] = lerp(base.footR[1], 0.36, hipPower);
         } else {
-          p.thighL[0] = lerp(base.thighL[0], 0.36, power);
-          p.footL[0] = lerp(base.footL[0], -0.48, power);
+          p.thighR[0] = lerp(base.thighR[0], -0.46, hipPower);
+          p.shinR[0] = lerp(base.shinR[0], 0.56, hipPower);
+          p.thighL[0] = lerp(base.thighL[0], 0.4, hipPower);
+          p.thighL[1] = lerp(base.thighL[1], 0.34, hipPower);
+          p.footL[0] = lerp(base.footL[0], -0.54, hipPower);
+          p.footL[1] = lerp(base.footL[1], -0.36, hipPower);
+        }
+      } else {
+        // Quick jab step-in on lead knee
+        if (stance === 'orthodox') {
+          p.thighL[0] = lerp(base.thighL[0], -0.4, hipPower);
+          p.shinL[0] = lerp(base.shinL[0], 0.48, hipPower);
+        } else {
+          p.thighR[0] = lerp(base.thighR[0], -0.4, hipPower);
+          p.shinR[0] = lerp(base.shinR[0], 0.48, hipPower);
         }
       }
 
-      const extArm: [number, number, number] = [-1.56, twistDir * -0.06, 0];
-      const extForearm: [number, number, number] = [-0.08, 0, 0];
-      const guardArm: [number, number, number] = [-1.08, twistDir * 0.24, twistDir * -0.22];
-      const guardForearm: [number, number, number] = [-2.05, 0, 0];
+      const extArm: [number, number, number] = [-1.58, twistDir * -0.07, 0];
+      const extForearm: [number, number, number] = [-0.06, 0, 0];
+      const guardArm: [number, number, number] = [
+        -1.15,
+        twistDir * 0.26,
+        twistDir * -0.22,
+      ];
+      const guardForearm: [number, number, number] = [-2.12, 0, 0];
 
       if (useLeft) {
         for (let k = 0; k < 3; k++) {
@@ -1703,32 +1758,68 @@ function getStrikePose(
       const isBody = strikeId === 'bodyHook' || strikeId === 'rearBodyHook';
       const isOverhand = strikeId === 'overhand';
       const twistDir = useLeft ? 1 : -1;
-      const cockTwist = -twistDir * (isOverhand ? 0.56 : 0.45) * chamber;
-      p.pelvisRotY = lerp(base.pelvisRotY, twistDir * (isOverhand ? 0.82 : 0.72), power) + cockTwist * 0.48;
-      p.abdomenRotY = lerp(base.abdomenRotY, twistDir * 0.45, power);
-      p.chestRotY = lerp(base.chestRotY, twistDir * (isOverhand ? 0.94 : 0.86), power) + cockTwist;
-      p.pelvisY = base.pelvisY - (isBody ? 0.16 : isOverhand ? 0.11 : 0.045) * power;
-      p.pelvisZ = power * (isOverhand ? 0.11 : 0.065);
-      p.abdomenRotX = lerp(base.abdomenRotX, isBody ? 0.38 : isOverhand ? 0.34 : 0.18, power);
-      p.abdomenRotZ = lerp(0, -twistDir * (isOverhand ? 0.3 : 0.2), power);
-      p.headRotY = lerp(base.headRotY, -twistDir * 0.68, power);
-      p.headRotZ = lerp(0, -twistDir * (isOverhand ? 0.22 : 0.06), power);
+      const cockTwist = -twistDir * (isOverhand ? 0.6 : 0.48) * chamber;
+      p.pelvisRotY =
+        lerp(base.pelvisRotY, twistDir * (isOverhand ? 0.86 : 0.78), hipPower) +
+        cockTwist * 0.44;
+      p.abdomenRotY = lerp(base.abdomenRotY, twistDir * 0.48, (hipPower + power) * 0.5);
+      p.chestRotY =
+        lerp(base.chestRotY, twistDir * (isOverhand ? 0.98 : 0.92), power) +
+        cockTwist;
+      p.pelvisY =
+        base.pelvisY - (isBody ? 0.17 : isOverhand ? 0.12 : 0.055) * hipPower;
+      p.pelvisZ = hipPower * (isOverhand ? 0.13 : 0.075);
+      p.abdomenRotX = lerp(
+        base.abdomenRotX,
+        isBody ? 0.42 : isOverhand ? 0.38 : 0.2,
+        power,
+      );
+      p.abdomenRotZ = lerp(0, -twistDir * (isOverhand ? 0.34 : 0.22), power);
+      p.headRotY = lerp(base.headRotY, -twistDir * 0.72, power);
+      p.headRotX = lerp(base.headRotX, -0.22, power);
+      p.headRotZ = lerp(0, -twistDir * (isOverhand ? 0.24 : 0.08), power);
 
-      const hookClav: [number, number, number] = [0.08, twistDir * 0.3, twistDir * (isOverhand ? 0.18 : -0.1)];
-      if (useLeft) p.clavicleL = hookClav.map((v) => lerp(0, v, power)) as [number, number, number];
-      else p.clavicleR = hookClav.map((v) => lerp(0, v, power)) as [number, number, number];
+      // Pivot plant foot cleanly during hooks & overhands
+      if (useLeft) {
+        p.thighL[1] = lerp(base.thighL[1], 0.32, hipPower);
+        p.footL[1] = lerp(base.footL[1], -0.32, hipPower);
+        p.thighL[0] = lerp(base.thighL[0], -0.44, hipPower);
+        p.shinL[0] = lerp(base.shinL[0], 0.52, hipPower);
+      } else {
+        p.thighR[1] = lerp(base.thighR[1], -0.34, hipPower);
+        p.footR[0] = lerp(base.footR[0], -0.48, hipPower);
+        p.footR[1] = lerp(base.footR[1], 0.36, hipPower);
+      }
+
+      const hookClav: [number, number, number] = [
+        0.1,
+        twistDir * 0.34,
+        twistDir * (isOverhand ? 0.2 : -0.12),
+      ];
+      if (useLeft)
+        p.clavicleL = hookClav.map((v, k) =>
+          lerp(base.clavicleL[k], v, power),
+        ) as [number, number, number];
+      else
+        p.clavicleR = hookClav.map((v, k) =>
+          lerp(base.clavicleR[k], v, power),
+        ) as [number, number, number];
 
       const hookArm: [number, number, number] = [
-        isBody ? -0.92 : isOverhand ? -1.78 : -1.46,
-        twistDir * (isOverhand ? 0.52 : 0.78),
-        twistDir * (isOverhand ? -0.68 : -0.98),
+        isBody ? -0.94 : isOverhand ? -1.82 : -1.48,
+        twistDir * (isOverhand ? 0.56 : 0.82),
+        twistDir * (isOverhand ? -0.72 : -1.02),
       ];
       const hookForearm: [number, number, number] = [
-        isOverhand ? -0.92 : -1.48,
-        twistDir * 0.38,
+        isOverhand ? -0.88 : -1.5,
+        twistDir * 0.42,
         0,
       ];
-      const tightGuardArm: [number, number, number] = [-1.18, twistDir * 0.22, twistDir * -0.15];
+      const tightGuardArm: [number, number, number] = [
+        -1.22,
+        twistDir * 0.24,
+        twistDir * -0.16,
+      ];
 
       if (useLeft) {
         for (let k = 0; k < 3; k++) {
@@ -1737,7 +1828,7 @@ function getStrikePose(
         }
         p.forearmL[0] = lerp(base.forearmL[0], hookForearm[0], power);
         p.forearmL[1] = lerp(base.forearmL[1], hookForearm[1], power);
-        p.forearmR[0] = lerp(base.forearmR[0], -2.02, power);
+        p.forearmR[0] = lerp(base.forearmR[0], -2.1, power);
       } else {
         for (let k = 0; k < 3; k++) {
           p.armR[k] = lerp(base.armR[k], hookArm[k], power);
@@ -1745,81 +1836,147 @@ function getStrikePose(
         }
         p.forearmR[0] = lerp(base.forearmR[0], hookForearm[0], power);
         p.forearmR[1] = lerp(base.forearmR[1], hookForearm[1], power);
-        p.forearmL[0] = lerp(base.forearmL[0], -2.02, power);
+        p.forearmL[0] = lerp(base.forearmL[0], -2.1, power);
       }
     } else if (strikeId === 'leadUppercut' || strikeId === 'rearUppercut') {
       const twistDir = useLeft ? 1 : -1;
-      p.pelvisY = base.pelvisY - 0.14 * chamber + 0.05 * power;
-      p.pelvisRotY = lerp(base.pelvisRotY, twistDir * 0.58, power);
-      p.abdomenRotY = lerp(base.abdomenRotY, twistDir * 0.32, power);
-      p.chestRotY = lerp(base.chestRotY, twistDir * 0.64, power);
-      p.chestRotX = lerp(base.chestRotX, -0.22, power);
-      p.headRotY = lerp(base.headRotY, -twistDir * 0.48, power);
+      const legDrive = clamp((armPower - 0.25) / 0.75, 0, 1);
+      p.pelvisY = base.pelvisY - 0.16 * chamber + 0.065 * legDrive;
+      p.pelvisRotY = lerp(base.pelvisRotY, twistDir * 0.62, hipPower);
+      p.abdomenRotY = lerp(base.abdomenRotY, twistDir * 0.35, power);
+      p.chestRotY = lerp(base.chestRotY, twistDir * 0.68, power);
+      p.chestRotX = lerp(base.chestRotX, -0.25, power);
+      p.headRotY = lerp(base.headRotY, -twistDir * 0.52, power);
 
-      const upClav: [number, number, number] = [-0.12, twistDir * 0.24, twistDir * -0.15];
-      if (useLeft) p.clavicleL = upClav.map((v) => lerp(0, v, power)) as [number, number, number];
-      else p.clavicleR = upClav.map((v) => lerp(0, v, power)) as [number, number, number];
+      // Dip knees in chamber then explode upward
+      p.thighL[0] = lerp(base.thighL[0], -0.58 * chamber + base.thighL[0] * 0.6, chamber);
+      p.shinL[0] = lerp(base.shinL[0], 0.72 * chamber + base.shinL[0] * 0.6, chamber);
+      p.thighR[0] = lerp(base.thighR[0], -0.4 * chamber + base.thighR[0], chamber);
+      p.shinR[0] = lerp(base.shinR[0], 0.62 * chamber + base.shinR[0], chamber);
 
-      const upArm: [number, number, number] = [-1.42 + chamber * 0.65, 0, 0];
-      const upFore: [number, number, number] = [-1.72, 0, 0];
+      const upClav: [number, number, number] = [
+        -0.14,
+        twistDir * 0.28,
+        twistDir * -0.16,
+      ];
+      if (useLeft)
+        p.clavicleL = upClav.map((v, k) =>
+          lerp(base.clavicleL[k], v, power),
+        ) as [number, number, number];
+      else
+        p.clavicleR = upClav.map((v, k) =>
+          lerp(base.clavicleR[k], v, power),
+        ) as [number, number, number];
+
+      const upArm: [number, number, number] = [-1.45 + chamber * 0.72, 0, 0];
+      const upFore: [number, number, number] = [-1.75, 0, 0];
       if (useLeft) {
         p.armL = [lerp(base.armL[0], upArm[0], power), base.armL[1], 0];
         p.forearmL = [lerp(base.forearmL[0], upFore[0], power), 0, 0];
+        p.armR = [lerp(base.armR[0], -1.2, power), 0.24, 0.14];
+        p.forearmR = [lerp(base.forearmR[0], -2.1, power), 0, 0];
       } else {
         p.armR = [lerp(base.armR[0], upArm[0], power), base.armR[1], 0];
         p.forearmR = [lerp(base.forearmR[0], upFore[0], power), 0, 0];
+        p.armL = [lerp(base.armL[0], -1.2, power), -0.24, -0.14];
+        p.forearmL = [lerp(base.forearmL[0], -2.1, power), 0, 0];
       }
     } else if (strikeId === 'spinningBackfist') {
-      const spinAngle = easeInOutCubic(smoothstep(0.05, 0.88, progress)) * Math.PI * 2 * s;
-      p.pelvisRotY = base.pelvisRotY + spinAngle;
-      p.chestRotY = base.chestRotY + spinAngle * 0.16;
-      p.clavicleR = [0, -0.26 * power, 0];
-      p.armR = [-1.48, -0.35 * s, 0.92 * s * power];
-      p.forearmR = [-0.22, 0, 0];
+      const hipSpin =
+        easeInOutCubic(smoothstep(0.02, 0.84, progress)) * Math.PI * 2 * s;
+      const chestSpin =
+        easeInOutCubic(smoothstep(0.08, 0.9, progress)) * Math.PI * 2 * s;
+      p.pelvisY = base.pelvisY - 0.06 * Math.sin(progress * Math.PI);
+      p.pelvisRotY = base.pelvisRotY + hipSpin;
+      p.chestRotY = base.chestRotY + (chestSpin - hipSpin) * 0.55;
+      p.clavicleR = [0, -0.3 * power, 0];
+      p.armR = [-1.5, -0.38 * s, 0.96 * s * power];
+      p.forearmR = [-0.22 - chamber * 0.85, 0, 0];
+      p.armL = [-1.18, -0.25, -0.15];
+      p.forearmL = [-2.05, 0, 0];
     }
   } else {
     // Authentic Muay Thai / UFC Roundhouse Kick:
+    // Plant foot opens outward -> Knee lifts tight -> Hip turns over -> Shin whips -> Re-chamber return
     const isHigh = strikeId === 'headKick' || strikeId === 'leadHeadKick';
     const isBody = strikeId === 'bodyKick' || strikeId === 'rearBodyKick';
-    const kickHeight = isHigh ? -1.82 : isBody ? -1.36 : -0.84;
+    const kickHeight = isHigh ? -1.86 : isBody ? -1.4 : -0.88;
     const kickLeft = useLeft;
     const dir = kickLeft ? -1 : 1;
-    const kneeChamber = Math.min(1, progress / Math.max(0.01, wEnd * 1.1));
-    const whipExtend = smoothstep(wEnd * 0.45, aEnd, progress) * (1 - smoothstep(aEnd, 1, progress));
+    const liftEnv = Math.sin(smoothstep(0.02, 0.96, progress) * Math.PI);
+    const kneeChamber = easeOutQuint(
+      Math.min(1, progress / Math.max(0.01, wEnd * 1.05)),
+    );
+    const whipExtend =
+      smoothstep(wEnd * 0.52, aEnd * 0.96, progress) *
+      (1 - smoothstep(aEnd, 0.95, progress));
+    const reChamber = smoothstep(aEnd * 0.92, 0.96, progress) * (1 - progress);
 
-    p.pelvisY = base.pelvisY - 0.03 * power;
-    p.pelvisRotY = lerp(base.pelvisRotY, -dir * 0.98, power);
-    p.abdomenRotY = lerp(base.abdomenRotY, -dir * 0.25, power);
-    p.pelvisRotZ = lerp(0, dir * 0.36, power);
-    p.chestRotZ = lerp(0, dir * 0.3, power);
-    p.chestRotX = lerp(base.chestRotX, -0.2, power);
-    p.headRotZ = lerp(0, -dir * 0.28, power);
-    p.headRotY = lerp(base.headRotY, dir * 0.78, power);
+    p.pelvisY = base.pelvisY - 0.025 * liftEnv;
+    p.pelvisRotY = lerp(base.pelvisRotY, -dir * 1.06, hipPower);
+    p.abdomenRotY = lerp(base.abdomenRotY, -dir * 0.28, power);
+    p.pelvisRotZ = lerp(0, dir * (isHigh ? 0.44 : 0.34), hipPower);
+    p.chestRotZ = lerp(0, dir * (isHigh ? 0.36 : 0.28), power);
+    p.chestRotX = lerp(base.chestRotX, -0.24, power);
+    p.headRotZ = lerp(0, -dir * 0.32, power);
+    p.headRotY = lerp(base.headRotY, dir * 0.84, power);
+
+    const shinFold = 1.08 * chamber + 0.55 * reChamber;
 
     if (kickLeft) {
+      // Standing right leg external pivot on ball of foot
+      p.thighR[1] = lerp(base.thighR[1], 0.42, hipPower);
+      p.footR[0] = lerp(base.footR[0], -0.24, hipPower);
+      p.footR[1] = lerp(base.footR[1], -0.45, hipPower);
+      p.shinR[0] = lerp(base.shinR[0], 0.18, hipPower);
+
       p.thighL = [
-        lerp(base.thighL[0], kickHeight, kneeChamber * (1 - smoothstep(aEnd, 1, progress))),
-        lerp(base.thighL[1], 0.38, power),
-        lerp(base.thighL[2], -0.48, power),
+        lerp(
+          base.thighL[0],
+          kickHeight,
+          kneeChamber * (1 - smoothstep(aEnd, 1, progress)),
+        ),
+        lerp(base.thighL[1], 0.42, hipPower),
+        lerp(base.thighL[2], -0.52, hipPower),
       ];
-      p.shinL = [lerp(0.95 * chamber, 0.06, whipExtend), 0, 0];
-      p.footL = [lerp(0, 0.35, power), 0, 0];
-      p.armL = [lerp(base.armL[0], 0.55, power), 0, lerp(base.armL[2], -0.75, power)];
-      p.forearmL = [lerp(base.forearmL[0], -0.25, power), 0, 0];
-      p.armR = [lerp(base.armR[0], -1.18, power), 0.25, 0.15];
-      p.forearmR = [-2.05, 0, 0];
+      p.shinL = [lerp(shinFold, 0.05, whipExtend), 0, 0];
+      p.footL = [lerp(0, 0.42, power), 0, 0];
+      // Left arm whips down-back for torque while right hand stays high at temple
+      p.armL = [
+        lerp(base.armL[0], 0.68, power),
+        0,
+        lerp(base.armL[2], -0.85, power),
+      ];
+      p.forearmL = [lerp(base.forearmL[0], -0.22, power), 0, 0];
+      p.armR = [lerp(base.armR[0], -1.24, power), 0.28, 0.16];
+      p.forearmR = [-2.12, 0, 0];
     } else {
+      // Standing left leg external pivot on ball of foot
+      p.thighL[1] = lerp(base.thighL[1], -0.42, hipPower);
+      p.footL[0] = lerp(base.footL[0], -0.24, hipPower);
+      p.footL[1] = lerp(base.footL[1], 0.45, hipPower);
+      p.shinL[0] = lerp(base.shinL[0], 0.18, hipPower);
+
       p.thighR = [
-        lerp(base.thighR[0], kickHeight, kneeChamber * (1 - smoothstep(aEnd, 1, progress))),
-        lerp(base.thighR[1], -0.38, power),
-        lerp(base.thighR[2], 0.48, power),
+        lerp(
+          base.thighR[0],
+          kickHeight,
+          kneeChamber * (1 - smoothstep(aEnd, 1, progress)),
+        ),
+        lerp(base.thighR[1], -0.42, hipPower),
+        lerp(base.thighR[2], 0.52, hipPower),
       ];
-      p.shinR = [lerp(0.95 * chamber, 0.06, whipExtend), 0, 0];
-      p.footR = [lerp(0, 0.35, power), 0, 0];
-      p.armR = [lerp(base.armR[0], 0.55, power), 0, lerp(base.armR[2], 0.75, power)];
-      p.forearmR = [lerp(base.forearmR[0], -0.25, power), 0, 0];
-      p.armL = [lerp(base.armL[0], -1.18, power), -0.25, -0.15];
-      p.forearmL = [-2.05, 0, 0];
+      p.shinR = [lerp(shinFold, 0.05, whipExtend), 0, 0];
+      p.footR = [lerp(0, 0.42, power), 0, 0];
+      // Right arm whips down-back while left hand stays high at temple
+      p.armR = [
+        lerp(base.armR[0], 0.68, power),
+        0,
+        lerp(base.armR[2], 0.85, power),
+      ];
+      p.forearmR = [lerp(base.forearmR[0], -0.22, power), 0, 0];
+      p.armL = [lerp(base.armL[0], -1.24, power), -0.28, -0.16];
+      p.forearmL = [-2.12, 0, 0];
     }
   }
 
@@ -1879,12 +2036,16 @@ function interpolatePose(
   rig.thighL.rotation.z = lerp(rig.thighL.rotation.z, target.thighL[2], alphaLimbs);
   rig.shinL.rotation.x = lerp(rig.shinL.rotation.x, target.shinL[0], alphaLimbs);
   rig.footL.rotation.x = lerp(rig.footL.rotation.x, target.footL[0], alphaLimbs);
+  rig.footL.rotation.y = lerp(rig.footL.rotation.y, target.footL[1], alphaLimbs);
+  rig.footL.rotation.z = lerp(rig.footL.rotation.z, target.footL[2], alphaLimbs);
 
   rig.thighR.rotation.x = lerp(rig.thighR.rotation.x, target.thighR[0], alphaLimbs);
   rig.thighR.rotation.y = lerp(rig.thighR.rotation.y, target.thighR[1], alphaLimbs);
   rig.thighR.rotation.z = lerp(rig.thighR.rotation.z, target.thighR[2], alphaLimbs);
   rig.shinR.rotation.x = lerp(rig.shinR.rotation.x, target.shinR[0], alphaLimbs);
   rig.footR.rotation.x = lerp(rig.footR.rotation.x, target.footR[0], alphaLimbs);
+  rig.footR.rotation.y = lerp(rig.footR.rotation.y, target.footR[1], alphaLimbs);
+  rig.footR.rotation.z = lerp(rig.footR.rotation.z, target.footR[2], alphaLimbs);
 }
 
 export function applyMainMenuHeroPose(
@@ -1955,6 +2116,7 @@ export function applyFighterPose(
   state: FighterState,
   timeSec: number,
   dt: number,
+  isKoWinner = false,
 ) {
   rig.root.position.set(state.x, 0, state.z);
   rig.root.rotation.y = state.facingYaw;
@@ -1963,7 +2125,26 @@ export function applyFighterPose(
   const base = getStanceGuardPose(state.stance, state.gaitPhase, speed, timeSec);
   let target: PoseAngles = base;
 
-  if (state.action === 'strike' && state.currentStrike) {
+  if (isKoWinner && state.action !== 'ko') {
+    // Walk-off / Raised-Arms Victory Celebration after scoring a knockout
+    const celeb = Math.sin(timeSec * 4.2) * 0.04;
+    target = { ...base };
+    target.pelvisY = 0.955 + Math.abs(celeb) * 0.25;
+    target.chestRotX = -0.14;
+    target.chestRotY = 0.14;
+    target.headRotX = -0.22;
+    target.headRotY = Math.sin(timeSec * 1.4) * 0.12;
+    target.clavicleL = [-0.24, 0, -0.25];
+    target.clavicleR = [-0.24, 0, 0.25];
+    target.armL = [-2.55 + celeb, 0.22, -0.46];
+    target.forearmL = [-0.42, 0.1, 0.14];
+    target.armR = [-2.68 - celeb, -0.2, 0.42];
+    target.forearmR = [-0.36, -0.1, -0.14];
+    target.thighL = [-0.08, 0.12, -0.12];
+    target.thighR = [0.06, -0.1, 0.12];
+    target.shinL = [0.12, 0, 0];
+    target.shinR = [0.08, 0, 0];
+  } else if (state.action === 'strike' && state.currentStrike) {
     const progress = Math.min(
       1,
       state.actionTime / Math.max(0.01, state.actionDuration),
@@ -2012,54 +2193,168 @@ export function applyFighterPose(
         Math.PI,
     );
     const k = state.hitReactIntensity * p;
+    const hitDir = state.hitReactSide === 0 ? 1 : state.hitReactSide;
     target = { ...base };
     if (state.hitReactZone === 'head') {
-      target.chestRotX = -0.28 * k;
-      target.headRotX = -0.65 * k;
-      target.headRotY = base.headRotY + 0.34 * k;
-      target.armL = [-0.55, -0.2, -0.35];
-      target.armR = [-0.55, 0.2, 0.35];
+      target.abdomenRotX = -0.14 * k;
+      target.chestRotX = -0.34 * k;
+      target.chestRotY = base.chestRotY + 0.22 * hitDir * k;
+      target.headRotX = -0.72 * k;
+      target.headRotY = base.headRotY + 0.44 * hitDir * k;
+      target.headRotZ = -0.26 * hitDir * k;
+      target.armL = [-0.52, -0.24, -0.38];
+      target.armR = [-0.52, 0.24, 0.38];
     } else if (state.hitReactZone === 'body') {
-      target.abdomenRotX = 0.48 * k;
-      target.chestRotX = 0.4 * k;
-      target.pelvisY = base.pelvisY - 0.1 * k;
+      target.abdomenRotX = 0.54 * k;
+      target.chestRotX = 0.44 * k;
+      target.chestRotZ = 0.16 * hitDir * k;
+      target.pelvisY = base.pelvisY - 0.12 * k;
+      target.armL = [-0.7, 0.18, -0.25];
+      target.armR = [-0.7, -0.18, 0.25];
     } else {
-      target.pelvisY = base.pelvisY - 0.11 * k;
-      target.pelvisRotZ = 0.24 * k;
-      target.thighL = [-0.58 * k, 0.1, -0.1];
-      target.shinL = [0.68 * k, 0, 0];
+      target.pelvisY = base.pelvisY - 0.13 * k;
+      target.pelvisRotZ = 0.28 * hitDir * k;
+      target.thighL = [-0.62 * k, 0.12, -0.14];
+      target.shinL = [0.74 * k, 0, 0];
     }
   } else if (state.action === 'stunned') {
-    const wobble = Math.sin(timeSec * 12);
+    const wobble = Math.sin(timeSec * 10.5);
+    const kneeBuckle = Math.max(0, Math.sin(timeSec * 7.2));
     target = { ...base };
-    target.pelvisY = base.pelvisY - 0.11;
-    target.abdomenRotZ = wobble * 0.24;
-    target.chestRotZ = wobble * 0.28;
-    target.chestRotX = -0.14;
-    target.headRotX = -0.24;
-    target.armL = [-0.5, -0.15, -0.42];
-    target.armR = [-0.5, 0.15, 0.42];
-  } else if (state.action === 'knockdown' || state.action === 'ko') {
-    const t = Math.min(1, state.actionTime / 0.55);
-    const fall = smoothstep(0, 1, t);
+    target.pelvisY = base.pelvisY - 0.12 - kneeBuckle * 0.05;
+    target.pelvisRotZ = wobble * 0.16;
+    target.abdomenRotZ = wobble * 0.28;
+    target.chestRotZ = wobble * 0.32;
+    target.chestRotX = -0.16;
+    target.headRotX = -0.28;
+    target.headRotZ = -wobble * 0.22;
+    target.thighL = [base.thighL[0] - kneeBuckle * 0.28, base.thighL[1], -0.12];
+    target.shinL = [base.shinL[0] + kneeBuckle * 0.38, 0, 0];
+    target.thighR = [base.thighR[0] - (1 - kneeBuckle) * 0.22, base.thighR[1], 0.12];
+    target.shinR = [base.shinR[0] + (1 - kneeBuckle) * 0.3, 0, 0];
+    target.armL = [-0.42, -0.18, -0.48 + wobble * 0.12];
+    target.forearmL = [-0.85, 0, 0.1];
+    target.armR = [-0.42, 0.18, 0.48 + wobble * 0.12];
+    target.forearmR = [-0.85, 0, -0.1];
+  } else if (state.action === 'knockdown') {
+    const kneeCollapse = smoothstep(0, 0.22, state.actionTime);
+    const fall = smoothstep(0.08, 0.54, state.actionTime);
     const recover =
-      state.action === 'knockdown' && state.actionTime > 0.9
-        ? smoothstep(0.9, state.actionDuration, state.actionTime)
+      state.actionTime > 0.88
+        ? smoothstep(0.88, state.actionDuration, state.actionTime)
         : 0;
     const f = fall * (1 - recover);
+    const kc = kneeCollapse * (1 - recover);
+    const side = state.hitReactSide || 1;
     target = { ...base };
-    target.pelvisY = lerp(base.pelvisY, 0.17, f);
-    target.pelvisRotX = lerp(0, -Math.PI * 0.48, f);
-    target.chestRotX = lerp(base.chestRotX, -0.15, f);
-    target.headRotX = lerp(base.headRotX, 0.25, f);
-    target.armL = [lerp(base.armL[0], -0.3, f), -0.4 * f, -0.85 * f];
-    target.armR = [lerp(base.armR[0], -0.25, f), 0.4 * f, 0.85 * f];
-    target.forearmL = [lerp(base.forearmL[0], -0.45, f), 0, 0];
-    target.forearmR = [lerp(base.forearmR[0], -0.45, f), 0, 0];
-    target.thighL = [lerp(base.thighL[0], -0.15, f), 0, -0.15 * f];
-    target.thighR = [lerp(base.thighR[0], 0.05, f), 0, 0.15 * f];
-    target.shinL = [lerp(base.shinL[0], 0.25, f), 0, 0];
-    target.shinR = [lerp(base.shinR[0], 0.15, f), 0, 0];
+    target.pelvisY = lerp(base.pelvisY - kc * 0.16, 0.16, f);
+    target.pelvisRotX = lerp(0, -Math.PI * 0.47, f);
+    target.pelvisRotZ = lerp(0, 0.2 * side, f);
+    target.chestRotX = lerp(base.chestRotX, -0.16, f);
+    target.headRotX = lerp(base.headRotX, 0.28, f);
+    target.headRotY = lerp(base.headRotY, 0.35 * side, f);
+    target.armL = [lerp(base.armL[0], -0.32, f), -0.44 * f, -0.92 * f];
+    target.armR = [lerp(base.armR[0], -0.26, f), 0.44 * f, 0.92 * f];
+    target.forearmL = [lerp(base.forearmL[0], -0.42, f), 0, 0];
+    target.forearmR = [lerp(base.forearmR[0], -0.42, f), 0, 0];
+    target.thighL = [lerp(base.thighL[0] - kc * 0.35, -0.16, f), 0, -0.18 * f];
+    target.thighR = [lerp(base.thighR[0] - kc * 0.25, 0.06, f), 0, 0.18 * f];
+    target.shinL = [lerp(base.shinL[0] + kc * 0.48, 0.26, f), 0, 0];
+    target.shinR = [lerp(base.shinR[0] + kc * 0.36, 0.14, f), 0, 0];
+  } else if (state.action === 'ko') {
+    const t = state.actionTime;
+    const side = state.hitReactSide === 0 ? 1 : state.hitReactSide;
+    const whiplash = Math.sin(clamp(t / 0.19, 0, 1) * Math.PI);
+    const kneeGive = smoothstep(0.02, 0.24, t);
+    const dropRaw = clamp((t - 0.1) / 0.42, 0, 1);
+    const gravityDrop = dropRaw * dropRaw * (2 - dropRaw * 0.85);
+    const drop = clamp(gravityDrop, 0, 1);
+    const bounce =
+      t > 0.48 && t < 0.84
+        ? Math.sin(((t - 0.48) / 0.36) * Math.PI) * 0.055 * (1 - (t - 0.48) / 0.36)
+        : 0;
+    const settle = smoothstep(0.5, 0.86, t);
+    const headSlamBounce =
+      t > 0.52 && t < 0.88
+        ? Math.sin(((t - 0.52) / 0.36) * Math.PI) * 0.26
+        : 0;
+
+    target = { ...base };
+    if (state.koStyle === 'crumple') {
+      // Devastating fold-under crumple KO (knees buckle forward first, torso folds onto mat)
+      const crumpleDrop = smoothstep(0.08, 0.55, t);
+      target.pelvisY = lerp(base.pelvisY - kneeGive * 0.32, 0.15, crumpleDrop) + bounce * 0.7;
+      target.pelvisRotX = lerp(0, -Math.PI * 0.42, crumpleDrop);
+      target.pelvisRotZ = lerp(0, 0.42 * side, crumpleDrop);
+      target.abdomenRotX = lerp(base.abdomenRotX, 0.45 * (1 - settle * 0.5), crumpleDrop);
+      target.chestRotX = lerp(base.chestRotX, 0.25 * (1 - settle * 0.6), crumpleDrop);
+      target.chestRotZ = 0.28 * side * crumpleDrop;
+      target.headRotX = -0.65 * whiplash + lerp(0, 0.44, settle) - headSlamBounce;
+      target.headRotY = 0.52 * side * drop;
+      target.headRotZ = -0.35 * side * settle;
+      target.thighL = [-1.15 * kneeGive * (1 - settle * 0.55), -0.18 * side, -0.28 * settle];
+      target.shinL = [1.85 * kneeGive * (1 - settle * 0.65), 0, 0];
+      target.thighR = [-0.95 * kneeGive * (1 - settle * 0.5), 0.16 * side, 0.26 * settle];
+      target.shinR = [1.55 * kneeGive * (1 - settle * 0.55), 0, 0];
+      target.armL = [lerp(-0.1, 0.18, settle), -0.38 * drop, -0.78 * drop];
+      target.armR = [lerp(-0.15, -0.34, settle), 0.48 * drop, 1.05 * drop];
+      target.forearmL = [-0.35 - 0.3 * bounce, 0.15, 0];
+      target.forearmR = [-0.25 - 0.25 * bounce, -0.15, 0];
+    } else if (state.koStyle === 'twisted') {
+      // Corkscrew hook / head kick KO: violent head snap & twisted flat sprawl
+      target.pelvisY = lerp(base.pelvisY - kneeGive * 0.12, 0.145, drop) + bounce;
+      target.pelvisRotX = lerp(0, -Math.PI * 0.48, drop);
+      target.pelvisRotY = lerp(0, 0.48 * side, drop);
+      target.pelvisRotZ = lerp(0, 0.36 * side, drop);
+      target.abdomenRotY = lerp(0, 0.22 * side, drop);
+      target.chestRotX = lerp(-0.32 * whiplash, -0.12, drop);
+      target.chestRotY = 0.35 * side * whiplash;
+      target.headRotX = -0.92 * whiplash - headSlamBounce + 0.18 * settle;
+      target.headRotY = 0.68 * side * clamp(whiplash + settle * 0.85, 0, 1);
+      target.headRotZ = -0.4 * side * drop;
+      // Fencing / flail arm reflex mid-fall turning into asymmetric unconscious sprawl
+      target.armL = [
+        lerp(-0.85 * whiplash, -0.12, settle),
+        lerp(-0.4, -0.58, settle),
+        lerp(-1.25 * drop, -1.12, settle),
+      ];
+      target.armR = [
+        lerp(-1.05 * whiplash, -0.38, settle),
+        lerp(0.35, 0.62, settle),
+        lerp(1.18 * drop, 0.94, settle),
+      ];
+      target.forearmL = [lerp(-0.18, -0.45, settle) - bounce * 2.5, 0, 0.15];
+      target.forearmR = [lerp(-0.55, -0.18, settle) - bounce * 2.2, 0, -0.15];
+      target.thighL = [lerp(-0.32 * kneeGive, -0.24, settle), -0.14 * settle, -0.26 * settle];
+      target.thighR = [lerp(-0.15 * kneeGive, 0.12, settle), 0.16 * settle, 0.14 * settle];
+      target.shinL = [lerp(0.55 * kneeGive, 0.48, settle), 0, 0];
+      target.shinR = [lerp(0.28 * kneeGive, 0.16, settle), 0, 0];
+    } else {
+      // Classic clean straight/kick "Timber" backward knockout with mat head-bounce
+      target.pelvisY = lerp(base.pelvisY - kneeGive * 0.14, 0.145, drop) + bounce;
+      target.pelvisRotX = lerp(0, -Math.PI * 0.49, drop);
+      target.pelvisRotZ = lerp(0, 0.16 * side, drop);
+      target.chestRotX = lerp(-0.38 * whiplash, -0.1, drop);
+      target.headRotX = -0.88 * whiplash - headSlamBounce + 0.16 * settle;
+      target.headRotY = 0.46 * side * settle;
+      target.headRotZ = -0.24 * side * settle;
+      target.armL = [
+        lerp(-0.45 * whiplash, -0.22, settle),
+        -0.55 * drop,
+        lerp(-0.95, -1.16, settle) * drop,
+      ];
+      target.armR = [
+        lerp(-0.92 * whiplash, -0.08, settle),
+        0.5 * drop,
+        lerp(1.05, 0.88, settle) * drop,
+      ];
+      target.forearmL = [-0.28 - bounce * 2.4, 0, 0];
+      target.forearmR = [-0.52 - bounce * 2.2, 0, 0];
+      target.thighL = [lerp(-0.28 * kneeGive, -0.22, settle), 0, -0.22 * drop];
+      target.thighR = [lerp(-0.14 * kneeGive, 0.08, settle), 0, 0.16 * drop];
+      target.shinL = [lerp(0.48 * kneeGive, 0.36, settle), 0, 0];
+      target.shinR = [lerp(0.24 * kneeGive, 0.14, settle), 0, 0];
+    }
   } else if (state.guard === 'high') {
     target = { ...base };
     target.armL = [-1.22, 0.28, -0.05];
@@ -2078,8 +2373,11 @@ export function applyFighterPose(
     target.abdomenRotX = 0.24;
   }
 
-  const limbRate = state.action === 'strike' || state.action === 'hitReact' ? 36 : 18;
-  const bodyRate = state.action === 'strike' ? 22 : 14;
+  const limbRate =
+    state.action === 'strike' || state.action === 'hitReact' || state.action === 'ko'
+      ? 36
+      : 18;
+  const bodyRate = state.action === 'strike' || state.action === 'ko' ? 24 : 14;
   const alphaBody = 1 - Math.exp(-bodyRate * Math.min(dt, 0.05));
   const alphaLimbs = 1 - Math.exp(-limbRate * Math.min(dt, 0.05));
   interpolatePose(rig, target, alphaBody, alphaLimbs);

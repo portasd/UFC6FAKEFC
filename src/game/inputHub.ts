@@ -1,4 +1,9 @@
 import { EvadeType, FighterInput, GuardMode } from './combatEngine';
+import {
+  ControlSettings,
+  DEFAULT_CONTROL_SETTINGS,
+  matchesKeyBinding,
+} from './controlSettings';
 import { StrikeId } from './strikes';
 
 export interface ControllerStatus {
@@ -21,27 +26,49 @@ export class InputHub {
   private prevRightStickDir: 'none' | EvadeType = 'none';
   private onPauseCallback: (() => void) | null = null;
 
+  private touchMoveX = 0;
+  private touchMoveZ = 0;
+  private touchGuard: GuardMode = 'none';
+  private touchHeldEvade: EvadeType | null = null;
+  private settings: ControlSettings = DEFAULT_CONTROL_SETTINGS;
+
   public controllerStatus: ControllerStatus = {
     connected: false,
     name: '',
   };
 
-  constructor(onPause?: () => void) {
+  constructor(onPause?: () => void, initialSettings?: ControlSettings) {
     this.onPauseCallback = onPause ?? null;
+    if (initialSettings) this.settings = initialSettings;
   }
 
   public setPauseCallback(cb: () => void) {
     this.onPauseCallback = cb;
   }
 
+  public setSettings(settings: ControlSettings) {
+    this.settings = settings;
+  }
+
+  private isBoundHeld(boundCode: string): boolean {
+    for (const held of this.keysHeld) {
+      if (matchesKeyBinding(boundCode, held)) return true;
+    }
+    return false;
+  }
+
   public bindListeners(): () => void {
     const onKeyDown = (e: KeyboardEvent) => {
+      const kb = this.settings.keyboard;
       if (
         ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(
           e.code,
         ) ||
+        matchesKeyBinding(kb.block, e.code) ||
         ((e.ctrlKey || e.metaKey) &&
-          ['KeyJ', 'KeyI', 'KeyK', 'KeyL'].includes(e.code))
+          [kb.leadPunch, kb.rearPunch, kb.leadKick, kb.rearKick].some((c) =>
+            matchesKeyBinding(c, e.code),
+          ))
       ) {
         e.preventDefault();
       }
@@ -108,6 +135,47 @@ export class InputHub {
     this.lastTapTime = {};
     this.prevStickMag = 0;
     this.prevRightStickDir = 'none';
+    this.touchMoveX = 0;
+    this.touchMoveZ = 0;
+    this.touchGuard = 'none';
+    this.touchHeldEvade = null;
+  }
+
+  public setTouchStick(moveX: number, moveZ: number) {
+    this.touchMoveX = Math.max(-1, Math.min(1, moveX));
+    this.touchMoveZ = Math.max(-1, Math.min(1, moveZ));
+  }
+
+  public triggerTouchLunge(dirX: number, dirZ: number) {
+    this.bufferedLunge = { x: dirX, z: dirZ };
+  }
+
+  public setTouchGuard(guard: GuardMode) {
+    this.touchGuard = guard;
+  }
+
+  public triggerTouchFeint() {
+    this.bufferedFeint = true;
+  }
+
+  public triggerTouchStrike(
+    limb: 'leadPunch' | 'rearPunch' | 'leadKick' | 'rearKick',
+    hookRoundMod = false,
+    bodyMod = false,
+    specialMod = false,
+  ) {
+    this.bufferStrike(
+      this.resolveStrikeFromModifiers(limb, hookRoundMod, bodyMod, specialMod),
+    );
+  }
+
+  public triggerTouchEvade(evade: EvadeType, hold = false) {
+    this.bufferEvade(evade);
+    this.touchHeldEvade = hold ? evade : null;
+  }
+
+  public setTouchHeldEvade(evade: EvadeType | null) {
+    this.touchHeldEvade = evade;
   }
 
   private bufferStrike(id: StrikeId) {
@@ -152,29 +220,33 @@ export class InputHub {
   }
 
   private handleKeyEdge(code: string, e?: KeyboardEvent) {
-    const shiftMod =
-      Boolean(e?.shiftKey) ||
-      this.keysHeld.has('ShiftLeft') ||
-      this.keysHeld.has('ShiftRight');
-    const ctrlMod =
-      Boolean(e?.ctrlKey) ||
-      this.keysHeld.has('ControlLeft') ||
-      this.keysHeld.has('ControlRight');
+    const kb = this.settings.keyboard;
+    const hookMod =
+      this.isBoundHeld(kb.hookMod) ||
+      (kb.hookMod === 'ShiftLeft' && Boolean(e?.shiftKey));
+    const bodyMod =
+      this.isBoundHeld(kb.bodyMod) ||
+      (kb.bodyMod === 'ControlLeft' && Boolean(e?.ctrlKey));
 
-    // Quick double-tap WASD directional lunges (within 250ms)
+    // Quick double-tap directional lunges (within 250ms)
     if (
-      code === 'KeyW' ||
-      code === 'KeyA' ||
-      code === 'KeyS' ||
-      code === 'KeyD'
+      matchesKeyBinding(kb.circleUp, code) ||
+      matchesKeyBinding(kb.moveBack, code) ||
+      matchesKeyBinding(kb.circleDown, code) ||
+      matchesKeyBinding(kb.moveForward, code)
     ) {
       const now = performance.now();
       const prev = this.lastTapTime[code] ?? 0;
       if (now - prev < 250) {
-        if (code === 'KeyD') this.bufferedLunge = { x: 0, z: 1 };
-        else if (code === 'KeyA') this.bufferedLunge = { x: 0, z: -1 };
-        else if (code === 'KeyW') this.bufferedLunge = { x: -1, z: 0 };
-        else if (code === 'KeyS') this.bufferedLunge = { x: 1, z: 0 };
+        if (matchesKeyBinding(kb.moveForward, code)) {
+          this.bufferedLunge = { x: 0, z: 1 };
+        } else if (matchesKeyBinding(kb.moveBack, code)) {
+          this.bufferedLunge = { x: 0, z: -1 };
+        } else if (matchesKeyBinding(kb.circleUp, code)) {
+          this.bufferedLunge = { x: -1, z: 0 };
+        } else if (matchesKeyBinding(kb.circleDown, code)) {
+          this.bufferedLunge = { x: 1, z: 0 };
+        }
         this.lastTapTime[code] = 0;
       } else {
         this.lastTapTime[code] = now;
@@ -182,72 +254,36 @@ export class InputHub {
       return;
     }
 
-    switch (code) {
-      // Exact EA UFC 4-Limb Keyboard Mapping: J=Lead Punch, I=Rear Punch, K=Lead Kick, L=Rear Kick
-      case 'KeyJ':
-        this.bufferStrike(
-          this.resolveStrikeFromModifiers(
-            'leadPunch',
-            shiftMod,
-            ctrlMod,
-            shiftMod && ctrlMod,
-          ),
-        );
-        break;
-      case 'KeyI':
-        this.bufferStrike(
-          this.resolveStrikeFromModifiers(
-            'rearPunch',
-            shiftMod,
-            ctrlMod,
-            shiftMod && ctrlMod,
-          ),
-        );
-        break;
-      case 'KeyK':
-        this.bufferStrike(
-          this.resolveStrikeFromModifiers(
-            'leadKick',
-            shiftMod,
-            ctrlMod,
-            shiftMod && ctrlMod,
-          ),
-        );
-        break;
-      case 'KeyL':
-        this.bufferStrike(
-          this.resolveStrikeFromModifiers(
-            'rearKick',
-            shiftMod,
-            ctrlMod,
-            shiftMod && ctrlMod,
-          ),
-        );
-        break;
-
-      // Head Movement (Slips, Ducks, Pulls): Arrow Keys
-      case 'ArrowUp':
-        this.bufferEvade('slipLeft');
-        break;
-      case 'ArrowRight':
-        this.bufferEvade('slipRight');
-        break;
-      case 'ArrowDown':
-        this.bufferEvade('duck');
-        break;
-      case 'ArrowLeft':
-        this.bufferEvade('pullBack');
-        break;
-
-      // Tap Space (Block) mid-windup = Strike Feint / Cancel
-      case 'Space':
-        this.bufferedFeint = true;
-        break;
-
-      case 'Escape':
-      case 'KeyP':
-        this.onPauseCallback?.();
-        break;
+    const specialMod = hookMod && bodyMod;
+    if (matchesKeyBinding(kb.leadPunch, code)) {
+      this.bufferStrike(
+        this.resolveStrikeFromModifiers('leadPunch', hookMod, bodyMod, specialMod),
+      );
+    } else if (matchesKeyBinding(kb.rearPunch, code)) {
+      this.bufferStrike(
+        this.resolveStrikeFromModifiers('rearPunch', hookMod, bodyMod, specialMod),
+      );
+    } else if (matchesKeyBinding(kb.leadKick, code)) {
+      this.bufferStrike(
+        this.resolveStrikeFromModifiers('leadKick', hookMod, bodyMod, specialMod),
+      );
+    } else if (matchesKeyBinding(kb.rearKick, code)) {
+      this.bufferStrike(
+        this.resolveStrikeFromModifiers('rearKick', hookMod, bodyMod, specialMod),
+      );
+    } else if (matchesKeyBinding(kb.evadeUp, code)) {
+      this.bufferEvade('slipLeft');
+    } else if (matchesKeyBinding(kb.evadeRight, code)) {
+      this.bufferEvade('slipRight');
+    } else if (matchesKeyBinding(kb.evadeDown, code)) {
+      this.bufferEvade('duck');
+    } else if (matchesKeyBinding(kb.evadeLeft, code)) {
+      this.bufferEvade('pullBack');
+    } else if (matchesKeyBinding(kb.block, code)) {
+      // Tap Block mid-windup = Strike Feint / Cancel
+      this.bufferedFeint = true;
+    } else if (code === 'Escape' || matchesKeyBinding(kb.pause, code)) {
+      this.onPauseCallback?.();
     }
   }
 
@@ -273,9 +309,12 @@ export class InputHub {
       };
     }
 
-    const deadzone = (v: number) => (Math.abs(v) < 0.18 ? 0 : v);
+    const gpCfg = this.settings.gamepad;
+    const dz = gpCfg.deadzone;
+    const deadzone = (v: number) => (Math.abs(v) < dz ? 0 : v);
     const lx = deadzone(pad.axes[0] ?? 0);
-    const ly = deadzone(pad.axes[1] ?? 0);
+    const rawLy = deadzone(pad.axes[1] ?? 0);
+    const ly = gpCfg.invertY ? -rawLy : rawLy;
     const rx = deadzone(pad.axes[2] ?? 0);
     const ry = deadzone(pad.axes[3] ?? 0);
 
@@ -307,17 +346,18 @@ export class InputHub {
     }
     this.prevRightStickDir = rDir;
 
-    // EA Sports UFC Bumper/Trigger mapping:
-    // LB / L1 (buttons[4]) = Hooks / Roundhouse Kicks modifier
-    // LT / L2 (buttons[6]) = Body Strikes modifier
-    // RB / R1 (buttons[5]) = High Block (and Feint tap; also LB+RB special uppercut/spin modifier)
-    // RT / R2 (buttons[7]) = combined RB + RT = Low/Body Block
-    const lb = Boolean(pad.buttons[4]?.pressed);
-    const rb = Boolean(pad.buttons[5]?.pressed);
-    const lt =
+    // EA Sports UFC Bumper/Trigger mapping (optionally swapped):
+    const rawLb = Boolean(pad.buttons[4]?.pressed);
+    const rawRb = Boolean(pad.buttons[5]?.pressed);
+    const rawLt =
       (pad.buttons[6]?.value ?? 0) > 0.35 || Boolean(pad.buttons[6]?.pressed);
-    const rt =
+    const rawRt =
       (pad.buttons[7]?.value ?? 0) > 0.35 || Boolean(pad.buttons[7]?.pressed);
+
+    const lb = gpCfg.swapBumpersTriggers ? rawLt : rawLb;
+    const rb = gpCfg.swapBumpersTriggers ? rawRt : rawRb;
+    const lt = gpCfg.swapBumpersTriggers ? rawLb : rawLt;
+    const rt = gpCfg.swapBumpersTriggers ? rawRb : rawRt;
 
     const specialMod = (lb && lt) || (lb && rb);
 
@@ -349,8 +389,9 @@ export class InputHub {
       );
     }
 
-    // Tap RB / R1 mid-windup = Feint Cancel (when not holding LB for LB+RB modifier)
-    if (justPressed(5) && !lb) {
+    // Tap Block bumper/trigger mid-windup = Feint Cancel (when not holding LB for LB+RB modifier)
+    const blockBtnIdx = gpCfg.swapBumpersTriggers ? 7 : 5;
+    if (justPressed(blockBtnIdx) && !lb) {
       this.bufferedFeint = true;
     }
 
@@ -387,32 +428,29 @@ export class InputHub {
     }
 
     const gp = this.pollGamepad();
+    const kb = this.settings.keyboard;
 
-    // Keyboard WASD footwork:
-    // D = forward toward opponent (+moveZ), A = back away (-moveZ)
-    // W = circle into cage (-moveX), S = circle toward camera (+moveX)
     let kbZ = 0;
-    if (this.keysHeld.has('KeyD')) kbZ += 1;
-    if (this.keysHeld.has('KeyA')) kbZ -= 1;
+    if (this.isBoundHeld(kb.moveForward)) kbZ += 1;
+    if (this.isBoundHeld(kb.moveBack)) kbZ -= 1;
 
     let kbX = 0;
-    if (this.keysHeld.has('KeyS')) kbX += 1;
-    if (this.keysHeld.has('KeyW')) kbX -= 1;
+    if (this.isBoundHeld(kb.circleDown)) kbX += 1;
+    if (this.isBoundHeld(kb.circleUp)) kbX -= 1;
 
-    // Keyboard High/Low Block: Space = High Block, Space + Ctrl = Low/Body Block
-    const ctrlHeld =
-      this.keysHeld.has('ControlLeft') || this.keysHeld.has('ControlRight');
+    // Keyboard High/Low Block
+    const bodyHeld = this.isBoundHeld(kb.bodyMod);
     let kbGuard: GuardMode = 'none';
-    if (this.keysHeld.has('Space')) {
-      kbGuard = ctrlHeld ? 'low' : 'high';
+    if (this.isBoundHeld(kb.block)) {
+      kbGuard = bodyHeld ? 'low' : 'high';
     }
 
-    // Keyboard held head movement (Arrow Keys)
+    // Keyboard held head movement
     let kbHeldEvade: EvadeType | null = null;
-    if (this.keysHeld.has('ArrowDown')) kbHeldEvade = 'duck';
-    else if (this.keysHeld.has('ArrowLeft')) kbHeldEvade = 'pullBack';
-    else if (this.keysHeld.has('ArrowUp')) kbHeldEvade = 'slipLeft';
-    else if (this.keysHeld.has('ArrowRight')) kbHeldEvade = 'slipRight';
+    if (this.isBoundHeld(kb.evadeDown)) kbHeldEvade = 'duck';
+    else if (this.isBoundHeld(kb.evadeLeft)) kbHeldEvade = 'pullBack';
+    else if (this.isBoundHeld(kb.evadeUp)) kbHeldEvade = 'slipLeft';
+    else if (this.isBoundHeld(kb.evadeRight)) kbHeldEvade = 'slipRight';
 
     const requestedStrike = this.bufferedStrike;
     const requestedEvade = this.bufferedEvade;
@@ -424,13 +462,32 @@ export class InputHub {
     this.bufferedLunge = null;
     this.bufferedFeint = false;
 
+    const moveX =
+      Math.abs(gp.moveX) > 0.05
+        ? gp.moveX
+        : Math.abs(this.touchMoveX) > 0.05
+          ? this.touchMoveX
+          : kbX;
+    const moveZ =
+      Math.abs(gp.moveZ) > 0.05
+        ? gp.moveZ
+        : Math.abs(this.touchMoveZ) > 0.05
+          ? this.touchMoveZ
+          : kbZ;
+    const guard =
+      gp.guard !== 'none'
+        ? gp.guard
+        : this.touchGuard !== 'none'
+          ? this.touchGuard
+          : kbGuard;
+
     return {
-      moveX: Math.abs(gp.moveX) > 0.05 ? gp.moveX : kbX,
-      moveZ: Math.abs(gp.moveZ) > 0.05 ? gp.moveZ : kbZ,
-      guard: gp.guard !== 'none' ? gp.guard : kbGuard,
+      moveX,
+      moveZ,
+      guard,
       requestedStrike,
       requestedEvade,
-      heldEvade: gp.heldEvade ?? kbHeldEvade,
+      heldEvade: gp.heldEvade ?? this.touchHeldEvade ?? kbHeldEvade,
       requestedLunge,
       requestedFeint,
     };

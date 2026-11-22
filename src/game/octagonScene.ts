@@ -843,8 +843,9 @@ export class OctagonSceneManager {
         applySelectShowcasePose(this.rigRed, 'red', timeSec, dt);
         applySelectShowcasePose(this.rigBlue, 'blue', timeSec, dt);
       } else {
-        applyFighterPose(this.rigRed, bout.fighters[0], timeSec, dt);
-        applyFighterPose(this.rigBlue, bout.fighters[1], timeSec, dt);
+        const koWin = bout.koWinnerIndex;
+        applyFighterPose(this.rigRed, bout.fighters[0], timeSec, dt, koWin === 0);
+        applyFighterPose(this.rigBlue, bout.fighters[1], timeSec, dt, koWin === 1);
       }
     }
 
@@ -900,28 +901,41 @@ export class OctagonSceneManager {
 
     if (isMenu) {
       // Heroic close-up bust framing on right side matching image_c94e6796.png with clean headroom
+      const isPortrait = this.camera.aspect < 0.85;
       desiredPos.set(
         0.03 + Math.sin(timeSec * 0.4) * 0.025,
         1.48 + Math.cos(timeSec * 0.35) * 0.012,
-        1.24,
+        isPortrait ? 1.56 : 1.24,
       );
-      desiredLook.set(0.2, 1.43, 0.2);
+      desiredLook.set(isPortrait ? 0.06 : 0.2, 1.43, 0.2);
     } else if (isSelect) {
-      // Split showcase framing matching UFC 6 fight-select screen
-      desiredPos.set(Math.sin(timeSec * 0.35) * 0.08, 1.38, 3.9);
-      desiredLook.set(0, 1.02, 0.35);
-    } else if (bout.koWinnerIndex !== null) {
-      const koA = timeSec * 0.35;
+      // Split showcase framing adapting cleanly to portrait mobile vs widescreen desktop
+      const isPortrait = this.camera.aspect < 0.9;
+      const selectZ = isPortrait
+        ? THREE.MathUtils.clamp(3.9 / (this.camera.aspect * 1.15), 4.4, 7.6)
+        : 3.9;
       desiredPos.set(
-        midX + Math.sin(koA) * 3.8,
-        1.45,
-        midZ + Math.cos(koA) * 3.8,
+        Math.sin(timeSec * 0.35) * 0.08,
+        isPortrait ? 1.42 : 1.38,
+        selectZ,
       );
-      desiredLook.set(midX, 0.72, midZ);
+      desiredLook.set(0, isPortrait ? 0.62 : 1.02, 0.35);
+    } else if (bout.koWinnerIndex !== null) {
+      const loser = bout.fighters[bout.koWinnerIndex === 0 ? 1 : 0];
+      const focusX = THREE.MathUtils.lerp(midX, loser.x, 0.45);
+      const focusZ = THREE.MathUtils.lerp(midZ, loser.z, 0.45);
+      const koSweep = Math.sin(timeSec * 0.72) * 2.15;
+      desiredPos.set(
+        focusX + koSweep,
+        1.28,
+        focusZ + THREE.MathUtils.clamp(2.55 + dist * 0.35, 2.75, 4.2),
+      );
+      desiredLook.set(focusX, 0.56, focusZ);
     } else {
-      // Broadcast side-angle camera framing both fighters dynamically
-      const camDist = THREE.MathUtils.clamp(3.35 + dist * 0.85, 3.6, 6.2);
-      desiredPos.set(midX, 1.68 + dist * 0.08, midZ + camDist);
+      // Broadcast side-angle camera framing both fighters dynamically (supports wide opening distance)
+      const aspectScale = this.camera.aspect < 1.0 ? Math.min(1.55, 1.05 / Math.max(0.5, this.camera.aspect)) : 1.0;
+      const camDist = THREE.MathUtils.clamp((3.35 + dist * 0.74) * aspectScale, 3.6, 8.6);
+      desiredPos.set(midX, 1.66 + dist * 0.075, midZ + camDist);
       desiredLook.set(midX, 1.06, midZ);
     }
 

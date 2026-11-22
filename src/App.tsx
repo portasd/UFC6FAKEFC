@@ -2,16 +2,26 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BoutState,
   createBoutState,
+  DifficultyLevel,
+  GameplayMode,
   generateAiInput,
   stepBout,
 } from './game/combatEngine';
 import { getFighterById, UFC_ROSTER } from './game/fighters';
 import { STRIKES } from './game/strikes';
 import { ControllerStatus, InputHub } from './game/inputHub';
+import {
+  cloneDefaultControlSettings,
+  ControlSettings,
+  loadControlSettings,
+  saveControlSettings,
+} from './game/controlSettings';
 import { ArenaAudioSynth } from './game/audioSynth';
 import { OctagonSceneManager } from './game/octagonScene';
 import { BroadcastHud, HudDomRefs, syncHudDom } from './components/BroadcastHud';
 import { TitleOverlay, TitleStep } from './components/TitleOverlay';
+import { MobileControls } from './components/MobileControls';
+import { OfflineIndicator } from './components/PWAInstall';
 import {
   ControlsModal,
   PauseModal,
@@ -31,11 +41,20 @@ export default function App() {
   const [titleStep, setTitleStep] = useState<TitleStep>('menu');
   const [redId, setRedId] = useState('holloway');
   const [blueId, setBlueId] = useState('mcgregor');
-  const [difficulty, setDifficulty] = useState<'pro' | 'champion' | 'legend'>(
-    'champion',
-  );
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>('champion');
+  const [gameplayMode, setGameplayMode] = useState<GameplayMode>('arcade');
   const [muted, setMuted] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  const [touchControlsEnabled, setTouchControlsEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.matchMedia('(pointer: coarse)').matches ||
+      navigator.maxTouchPoints > 0
+    );
+  });
+  const [controlSettings, setControlSettings] = useState<ControlSettings>(() =>
+    loadControlSettings(),
+  );
   const [currentRound, setCurrentRound] = useState(1);
   const [controller, setController] = useState<ControllerStatus>({
     connected: false,
@@ -81,14 +100,43 @@ export default function App() {
     rockedFlashEl: null,
   });
 
-  // Sync body state attribute
+  // Sync body state attribute & live control settings
   useEffect(() => {
     document.body.dataset.state = mode;
   }, [mode]);
 
+  useEffect(() => {
+    inputRef.current.setSettings(controlSettings);
+    saveControlSettings(controlSettings);
+  }, [controlSettings]);
+
+  const updateControlSettings = useCallback((next: ControlSettings) => {
+    setControlSettings(next);
+  }, []);
+
+  const resetControlSettings = useCallback(() => {
+    setControlSettings(cloneDefaultControlSettings());
+  }, []);
+
+  // Auto-enable mobile touch overlay if a touch pointer interacts
+  useEffect(() => {
+    const onFirstTouch = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        setTouchControlsEnabled(true);
+      }
+    };
+    window.addEventListener('pointerdown', onFirstTouch, { passive: true });
+    return () => window.removeEventListener('pointerdown', onFirstTouch);
+  }, []);
+
   const rebuildBout = useCallback(
-    (rId: string, bId: string, diff: 'pro' | 'champion' | 'legend') => {
-      const next = createBoutState(getFighterById(rId), getFighterById(bId), diff);
+    (rId: string, bId: string, diff: DifficultyLevel, simMode: boolean) => {
+      const next = createBoutState(
+        getFighterById(rId),
+        getFighterById(bId),
+        diff,
+        simMode,
+      );
       boutRef.current = next;
       koDelayRef.current = 0;
       setCurrentRound(1);
@@ -105,13 +153,13 @@ export default function App() {
     }
     audioRef.current.unlock();
     inputRef.current.clear();
-    rebuildBout(redId, blueId, difficulty);
+    rebuildBout(redId, blueId, difficulty, gameplayMode === 'simulation');
     modeRef.current = 'playing';
     document.body.dataset.state = 'playing';
     setMode('playing');
     setShowControls(false);
     audioRef.current.playRoundBell(1);
-  }, [redId, blueId, difficulty, rebuildBout]);
+  }, [redId, blueId, difficulty, gameplayMode, rebuildBout]);
 
   const togglePause = useCallback(() => {
     if (showControlsRef.current) {
@@ -145,12 +193,12 @@ export default function App() {
     setBlueId(UFC_ROSTER[bIdx].id);
   }, []);
 
-  // Sync fighter previews on Title screen when corners change
+  // Sync fighter previews on Title screen when corners or mode change
   useEffect(() => {
     if (modeRef.current === 'title') {
-      rebuildBout(redId, blueId, difficulty);
+      rebuildBout(redId, blueId, difficulty, gameplayMode === 'simulation');
     }
-  }, [redId, blueId, difficulty, rebuildBout]);
+  }, [redId, blueId, difficulty, gameplayMode, rebuildBout]);
 
   // Global keyboard shortcuts (Title Enter/Space/R/C, Mute M)
   useEffect(() => {
@@ -304,7 +352,7 @@ export default function App() {
 
         if (bout.koWinnerIndex !== null) {
           koDelayRef.current += dt;
-          if (koDelayRef.current >= 1.85) {
+          if (koDelayRef.current >= 2.45) {
             modeRef.current = 'gameover';
             document.body.dataset.state = 'gameover';
             setResultBout({ ...bout });
@@ -329,11 +377,14 @@ export default function App() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#090a0d]">
+      <OfflineIndicator />
+
       {/* Isolated 3D WebGL Mount Container */}
       <div
         ref={canvasMountRef}
         data-testid="octagon-canvas"
         className="fixed inset-0 w-full h-full"
+        style={{ touchAction: 'none' }}
       />
 
       {/* Active Broadcast HUD */}
@@ -343,12 +394,26 @@ export default function App() {
           blueName={blueProfile.name}
           maxRounds={3}
           currentRound={currentRound}
+          simulationMode={gameplayMode === 'simulation'}
           muted={muted}
           controllerConnected={controller.connected}
+          touchControlsEnabled={touchControlsEnabled}
+          keyboardBindings={controlSettings.keyboard}
           hudRefs={hudRefs}
           onToggleMute={toggleMute}
           onPause={togglePause}
           onOpenControls={() => setShowControls(true)}
+          onToggleTouchControls={() =>
+            setTouchControlsEnabled((prev) => !prev)
+          }
+        />
+      )}
+
+      {/* Mobile Touch Controls */}
+      {mode === 'playing' && !showControls && touchControlsEnabled && (
+        <MobileControls
+          inputHub={inputRef.current}
+          settings={controlSettings.touch}
         />
       )}
 
@@ -359,6 +424,7 @@ export default function App() {
           redId={redId}
           blueId={blueId}
           difficulty={difficulty}
+          gameplayMode={gameplayMode}
           controller={controller}
           onEnterSelect={() => {
             audioRef.current.unlock();
@@ -372,6 +438,7 @@ export default function App() {
           onSelectRed={setRedId}
           onSelectBlue={setBlueId}
           onSelectDifficulty={setDifficulty}
+          onSelectGameplayMode={setGameplayMode}
           onRandomize={randomizeMatchup}
           onStartFight={startFight}
           onOpenControls={() => setShowControls(true)}
@@ -384,7 +451,7 @@ export default function App() {
           onResume={togglePause}
           onRestart={startFight}
           onReturnTitle={() => {
-            rebuildBout(redId, blueId, difficulty);
+            rebuildBout(redId, blueId, difficulty, gameplayMode === 'simulation');
             titleStepRef.current = 'select';
             setTitleStep('select');
             modeRef.current = 'title';
@@ -400,7 +467,7 @@ export default function App() {
           bout={resultBout}
           onRematch={startFight}
           onReturnTitle={() => {
-            rebuildBout(redId, blueId, difficulty);
+            rebuildBout(redId, blueId, difficulty, gameplayMode === 'simulation');
             titleStepRef.current = 'select';
             setTitleStep('select');
             modeRef.current = 'title';
@@ -409,9 +476,16 @@ export default function App() {
         />
       )}
 
-      {/* Controls & Controller Guide Modal */}
+      {/* Controls Customization Modal */}
       {showControls && (
-        <ControlsModal onClose={() => setShowControls(false)} />
+        <ControlsModal
+          settings={controlSettings}
+          touchEnabled={touchControlsEnabled}
+          onUpdateSettings={updateControlSettings}
+          onToggleTouchEnabled={() => setTouchControlsEnabled((prev) => !prev)}
+          onResetDefaults={resetControlSettings}
+          onClose={() => setShowControls(false)}
+        />
       )}
     </div>
   );
