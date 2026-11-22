@@ -17,14 +17,17 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
+      - uses: android-actions/setup-android@v3
       - name: Install dependencies & sync web bundle
         run: |
-          npm ci
+          npm install
           npm run build
           npx cap sync android
       - name: Build Debug APK
         working-directory: android
-        run: ./gradlew assembleDebug
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
