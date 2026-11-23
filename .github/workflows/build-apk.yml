@@ -18,6 +18,9 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: latest
+          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
       - name: Create Android SDK licenses
         run: |
           mkdir -p $ANDROID_HOME/licenses
@@ -27,7 +30,6 @@ jobs:
           echo "84831b8509b265738ab1d9258863b7301a210ef0" > $ANDROID_HOME/licenses/google-gdk-license
           echo "db887c093415cf99a8427fef66b3d5b06d482596" > $ANDROID_HOME/licenses/android-googletv-license
           echo "504667f4c0de7af1a06de9f4b1727b84351f2910" > $ANDROID_HOME/licenses/android-googlexr-license
-          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
       - name: Install dependencies & sync web bundle
         run: |
           npm install --legacy-peer-deps
