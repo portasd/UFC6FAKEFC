@@ -18,6 +18,7 @@ export class InputHub {
   private bufferedEvade: EvadeType | null = null;
   private evadeBufferTimer = 0;
   private bufferedLunge: { x: number; z: number } | null = null;
+  private bufferedScreenLunge: { x: number; y: number } | null = null;
   private bufferedFeint = false;
 
   private lastTapTime: Record<string, number> = {};
@@ -26,8 +27,8 @@ export class InputHub {
   private prevRightStickDir: 'none' | EvadeType = 'none';
   private onPauseCallback: (() => void) | null = null;
 
-  private touchMoveX = 0;
-  private touchMoveZ = 0;
+  private touchScreenX = 0;
+  private touchScreenY = 0;
   private touchGuard: GuardMode = 'none';
   private touchHeldEvade: EvadeType | null = null;
   private settings: ControlSettings = DEFAULT_CONTROL_SETTINGS;
@@ -131,23 +132,24 @@ export class InputHub {
     this.bufferedEvade = null;
     this.evadeBufferTimer = 0;
     this.bufferedLunge = null;
+    this.bufferedScreenLunge = null;
     this.bufferedFeint = false;
     this.lastTapTime = {};
     this.prevStickMag = 0;
     this.prevRightStickDir = 'none';
-    this.touchMoveX = 0;
-    this.touchMoveZ = 0;
+    this.touchScreenX = 0;
+    this.touchScreenY = 0;
     this.touchGuard = 'none';
     this.touchHeldEvade = null;
   }
 
-  public setTouchStick(moveX: number, moveZ: number) {
-    this.touchMoveX = Math.max(-1, Math.min(1, moveX));
-    this.touchMoveZ = Math.max(-1, Math.min(1, moveZ));
+  public setTouchStick(screenX: number, screenY: number) {
+    this.touchScreenX = Math.max(-1, Math.min(1, screenX));
+    this.touchScreenY = Math.max(-1, Math.min(1, screenY));
   }
 
-  public triggerTouchLunge(dirX: number, dirZ: number) {
-    this.bufferedLunge = { x: dirX, z: dirZ };
+  public triggerTouchLunge(screenX: number, screenY: number) {
+    this.bufferedScreenLunge = { x: screenX, y: screenY };
   }
 
   public setTouchGuard(guard: GuardMode) {
@@ -243,9 +245,9 @@ export class InputHub {
         } else if (matchesKeyBinding(kb.moveBack, code)) {
           this.bufferedLunge = { x: 0, z: -1 };
         } else if (matchesKeyBinding(kb.circleUp, code)) {
-          this.bufferedLunge = { x: -1, z: 0 };
+          this.bufferedScreenLunge = { x: 0, y: -1 };
         } else if (matchesKeyBinding(kb.circleDown, code)) {
-          this.bufferedLunge = { x: 1, z: 0 };
+          this.bufferedScreenLunge = { x: 0, y: 1 };
         }
         this.lastTapTime[code] = 0;
       } else {
@@ -287,7 +289,10 @@ export class InputHub {
     }
   }
 
-  public pollGamepad(): {
+  public pollGamepad(
+    playerFacingYaw = Math.PI / 2,
+    isPerspectiveFollowCam = false,
+  ): {
     moveX: number;
     moveZ: number;
     guard: GuardMode;
@@ -324,10 +329,10 @@ export class InputHub {
     const dLeft = pad.buttons[14]?.pressed ? 1 : 0;
     const dRight = pad.buttons[15]?.pressed ? 1 : 0;
 
-    // Detect Left Stick rapid flicks for directional lunges
+    // Detect Left Stick rapid flicks for directional lunges (screen-space projected)
     const stickMag = Math.hypot(lx, ly);
     if (stickMag > 0.78 && this.prevStickMag < 0.25) {
-      this.bufferedLunge = { x: ly, z: lx };
+      this.bufferedScreenLunge = { x: lx, y: ly };
     }
     this.prevStickMag = stickMag;
 
@@ -401,9 +406,17 @@ export class InputHub {
 
     this.prevGamepadButtons = pad.buttons.map((b) => Boolean(b.pressed));
 
-    // In side-on broadcast camera, Left Stick Right (+lx) moves toward opponent (+moveZ), Up (-ly) circles away
-    const moveZ = Math.max(-1, Math.min(1, lx + (dRight - dLeft)));
-    const moveX = Math.max(-1, Math.min(1, ly + (dDown - dUp)));
+    // Project stick onto fighter facing basis (perspective camera vs broadcast side-view)
+    const gpScreenX = Math.max(-1, Math.min(1, lx + (dRight - dLeft)));
+    const gpScreenY = Math.max(-1, Math.min(1, ly + (dDown - dUp)));
+    const sinY = Math.sin(playerFacingYaw);
+    const cosY = Math.cos(playerFacingYaw);
+    const moveZ = isPerspectiveFollowCam
+      ? Math.max(-1, Math.min(1, -gpScreenY))
+      : Math.max(-1, Math.min(1, gpScreenX * sinY + gpScreenY * cosY));
+    const moveX = isPerspectiveFollowCam
+      ? Math.max(-1, Math.min(1, -gpScreenX))
+      : Math.max(-1, Math.min(1, gpScreenX * cosY - gpScreenY * sinY));
 
     let guard: GuardMode = 'none';
     if (rb && rt) guard = 'low';
@@ -417,7 +430,11 @@ export class InputHub {
     };
   }
 
-  public samplePlayerInput(dt: number): FighterInput {
+  public samplePlayerInput(
+    dt: number,
+    playerFacingYaw = Math.PI / 2,
+    isPerspectiveFollowCam = false,
+  ): FighterInput {
     if (this.strikeBufferTimer > 0) {
       this.strikeBufferTimer = Math.max(0, this.strikeBufferTimer - dt);
       if (this.strikeBufferTimer === 0) this.bufferedStrike = null;
@@ -427,16 +444,37 @@ export class InputHub {
       if (this.evadeBufferTimer === 0) this.bufferedEvade = null;
     }
 
-    const gp = this.pollGamepad();
+    const sinY = Math.sin(playerFacingYaw);
+    const cosY = Math.cos(playerFacingYaw);
+
+    const gp = this.pollGamepad(playerFacingYaw, isPerspectiveFollowCam);
     const kb = this.settings.keyboard;
 
     let kbZ = 0;
-    if (this.isBoundHeld(kb.moveForward)) kbZ += 1;
-    if (this.isBoundHeld(kb.moveBack)) kbZ -= 1;
-
     let kbX = 0;
-    if (this.isBoundHeld(kb.circleDown)) kbX += 1;
-    if (this.isBoundHeld(kb.circleUp)) kbX -= 1;
+    if (isPerspectiveFollowCam) {
+      if (this.isBoundHeld(kb.circleUp)) kbZ += 1;
+      if (this.isBoundHeld(kb.circleDown)) kbZ -= 1;
+      if (this.isBoundHeld(kb.moveBack)) kbX += 1;
+      if (this.isBoundHeld(kb.moveForward)) kbX -= 1;
+    } else {
+      if (this.isBoundHeld(kb.moveForward)) kbZ += 1;
+      if (this.isBoundHeld(kb.moveBack)) kbZ -= 1;
+
+      // W circles toward cage (-Z), S circles toward camera (+Z)
+      let kbScreenY = 0;
+      if (this.isBoundHeld(kb.circleDown)) kbScreenY += 1;
+      if (this.isBoundHeld(kb.circleUp)) kbScreenY -= 1;
+      kbX = kbScreenY * -(sinY >= 0 ? 1 : -1);
+    }
+
+    // Project touch stick into fighter basis
+    const touchMoveZ = isPerspectiveFollowCam
+      ? -this.touchScreenY
+      : this.touchScreenX * sinY + this.touchScreenY * cosY;
+    const touchMoveX = isPerspectiveFollowCam
+      ? -this.touchScreenX
+      : this.touchScreenX * cosY - this.touchScreenY * sinY;
 
     // Keyboard High/Low Block
     const bodyHeld = this.isBoundHeld(kb.bodyMod);
@@ -454,25 +492,36 @@ export class InputHub {
 
     const requestedStrike = this.bufferedStrike;
     const requestedEvade = this.bufferedEvade;
-    const requestedLunge = this.bufferedLunge;
+    let requestedLunge = this.bufferedLunge;
+    if (!requestedLunge && this.bufferedScreenLunge) {
+      const sx = this.bufferedScreenLunge.x;
+      const sy = this.bufferedScreenLunge.y;
+      requestedLunge = isPerspectiveFollowCam
+        ? { x: -sx, z: -sy }
+        : {
+            x: sx * cosY - sy * sinY,
+            z: sx * sinY + sy * cosY,
+          };
+    }
     const requestedFeint = this.bufferedFeint;
 
     this.bufferedStrike = null;
     this.bufferedEvade = null;
     this.bufferedLunge = null;
+    this.bufferedScreenLunge = null;
     this.bufferedFeint = false;
 
     const moveX =
       Math.abs(gp.moveX) > 0.05
         ? gp.moveX
-        : Math.abs(this.touchMoveX) > 0.05
-          ? this.touchMoveX
+        : Math.abs(touchMoveX) > 0.05
+          ? touchMoveX
           : kbX;
     const moveZ =
       Math.abs(gp.moveZ) > 0.05
         ? gp.moveZ
-        : Math.abs(this.touchMoveZ) > 0.05
-          ? this.touchMoveZ
+        : Math.abs(touchMoveZ) > 0.05
+          ? touchMoveZ
           : kbZ;
     const guard =
       gp.guard !== 'none'

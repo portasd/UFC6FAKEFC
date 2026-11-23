@@ -1,7 +1,21 @@
 import * as THREE from 'three';
 import { FighterState } from './combatEngine';
-import { FighterProfile, Stance } from './fighters';
-import { STRIKES, StrikeId } from './strikes';
+import {
+  clonePose,
+  createZeroPose,
+  getBlockPose,
+  getIdleGuardPose,
+  getKnockdownPose,
+  getKnockoutPose,
+  getStrikeKeyframePose,
+  PoseAngles,
+} from './fighterAnimations';
+import {
+  BeardModelShape,
+  FaceLikenessProfile,
+  FighterProfile,
+  HairModelStyle,
+} from './fighters';
 
 export interface JointMap {
   root: THREE.Group;
@@ -10,84 +24,36 @@ export interface JointMap {
   chest: THREE.Group;
   neck: THREE.Group;
   head: THREE.Group;
+  // Upper Limb Hierarchy: clavicle -> shoulderPivot -> upperArm -> elbowPivot -> forearm -> fist
   clavicleL: THREE.Group;
+  shoulderPivotL: THREE.Group;
   upperArmL: THREE.Group;
+  elbowPivotL: THREE.Group;
   forearmL: THREE.Group;
-  gloveL: THREE.Group;
+  fistL: THREE.Group;
   clavicleR: THREE.Group;
+  shoulderPivotR: THREE.Group;
   upperArmR: THREE.Group;
+  elbowPivotR: THREE.Group;
   forearmR: THREE.Group;
-  gloveR: THREE.Group;
+  fistR: THREE.Group;
+  // Lower Limb Hierarchy: hipPivot -> thigh -> kneePivot -> shin -> anklePivot -> foot
+  hipPivotL: THREE.Group;
   thighL: THREE.Group;
+  kneePivotL: THREE.Group;
   shinL: THREE.Group;
+  anklePivotL: THREE.Group;
   footL: THREE.Group;
+  hipPivotR: THREE.Group;
   thighR: THREE.Group;
+  kneePivotR: THREE.Group;
   shinR: THREE.Group;
+  anklePivotR: THREE.Group;
   footR: THREE.Group;
   skinMaterial: THREE.MeshStandardMaterial;
   abdomenSkinMaterial: THREE.MeshStandardMaterial;
   faceMaterial: THREE.MeshStandardMaterial;
   shadowDisc: THREE.Mesh;
-}
-
-interface PoseAngles {
-  pelvisY: number;
-  pelvisZ: number;
-  pelvisRotY: number;
-  pelvisRotX: number;
-  pelvisRotZ: number;
-  abdomenRotX: number;
-  abdomenRotY: number;
-  abdomenRotZ: number;
-  chestRotX: number;
-  chestRotY: number;
-  chestRotZ: number;
-  headRotX: number;
-  headRotY: number;
-  headRotZ: number;
-  clavicleL: [number, number, number];
-  armL: [number, number, number];
-  forearmL: [number, number, number];
-  clavicleR: [number, number, number];
-  armR: [number, number, number];
-  forearmR: [number, number, number];
-  thighL: [number, number, number];
-  shinL: [number, number, number];
-  footL: [number, number, number];
-  thighR: [number, number, number];
-  shinR: [number, number, number];
-  footR: [number, number, number];
-}
-
-function createZeroPose(): PoseAngles {
-  return {
-    pelvisY: 0.94,
-    pelvisZ: 0,
-    pelvisRotY: 0,
-    pelvisRotX: 0,
-    pelvisRotZ: 0,
-    abdomenRotX: 0,
-    abdomenRotY: 0,
-    abdomenRotZ: 0,
-    chestRotX: 0,
-    chestRotY: 0,
-    chestRotZ: 0,
-    headRotX: 0,
-    headRotY: 0,
-    headRotZ: 0,
-    clavicleL: [0, 0, 0],
-    armL: [0, 0, 0],
-    forearmL: [0, 0, 0],
-    clavicleR: [0, 0, 0],
-    armR: [0, 0, 0],
-    forearmR: [0, 0, 0],
-    thighL: [0, 0, 0],
-    shinL: [0, 0, 0],
-    footL: [0, 0, 0],
-    thighR: [0, 0, 0],
-    shinR: [0, 0, 0],
-    footR: [0, 0, 0],
-  };
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -101,16 +67,6 @@ function clamp(v: number, lo: number, hi: number): number {
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
   return t * t * (3 - 2 * t);
-}
-
-function easeOutQuint(x: number): number {
-  const t = clamp(x, 0, 1);
-  return 1 - Math.pow(1 - t, 5);
-}
-
-function easeInOutCubic(x: number): number {
-  const t = clamp(x, 0, 1);
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 let cachedSoftShadowTex: THREE.CanvasTexture | null = null;
@@ -176,8 +132,83 @@ function createDropletTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-function createSculptedHeadGeometry(): THREE.BufferGeometry {
-  const geo = new THREE.SphereGeometry(0.106, 40, 32);
+interface ResolvedFaceProfile {
+  jawWidth: number;
+  faceWidth: number;
+  chinLength: number;
+  browRidge: number;
+  cheekHeight: number;
+  noseWidth: number;
+  noseLength: number;
+  earSize: number;
+  cauliflowerEars: boolean;
+  eyeColorHex: string;
+  eyebrowThickness: number;
+  eyebrowArch: 'stern' | 'arched' | 'flat';
+  hairModel: HairModelStyle;
+  hairAccentHex: string;
+  beardShape: BeardModelShape;
+  beardHex: string;
+  faceInk: 'none' | 'omalley' | 'hollowayTear';
+  neckTattoo:
+    | 'none'
+    | 'oliveira'
+    | 'topuriaWings'
+    | 'hollowayNeck'
+    | 'aspinallNeck'
+    | 'omalleyNeck'
+    | 'diazNeck';
+}
+
+function isBrightDyedHair(hex: string): boolean {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return false;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return r + g + b > 440 || r - g > 95;
+}
+
+function resolveFaceProfile(profile: FighterProfile): ResolvedFaceProfile {
+  const fp: FaceLikenessProfile = profile.appearance.faceProfile ?? {};
+  const defaultHairModel: HairModelStyle =
+    profile.appearance.hairStyle === 'shaved'
+      ? 'shaved'
+      : profile.appearance.hairStyle === 'fade'
+        ? 'highFade'
+        : profile.appearance.hairStyle === 'textured'
+          ? 'texturedCrop'
+          : 'buzz';
+  const defaultBeardShape: BeardModelShape = profile.appearance.facialHair;
+  const defaultNaturalHair = isBrightDyedHair(profile.appearance.hairHex)
+    ? '#1f1916'
+    : profile.appearance.hairHex;
+
+  return {
+    jawWidth: fp.jawWidth ?? 1.0,
+    faceWidth: fp.faceWidth ?? 1.0,
+    chinLength: fp.chinLength ?? 1.0,
+    browRidge: fp.browRidge ?? 1.0,
+    cheekHeight: fp.cheekHeight ?? 1.0,
+    noseWidth: fp.noseWidth ?? 1.0,
+    noseLength: fp.noseLength ?? 1.0,
+    earSize: fp.earSize ?? 1.0,
+    cauliflowerEars: fp.cauliflowerEars ?? false,
+    eyeColorHex: fp.eyeColorHex ?? '#2b1b12',
+    eyebrowThickness: fp.eyebrowThickness ?? 1.0,
+    eyebrowArch: fp.eyebrowArch ?? 'flat',
+    hairModel: fp.hairModel ?? defaultHairModel,
+    hairAccentHex: fp.hairAccentHex ?? profile.appearance.hairHex,
+    beardShape: fp.beardShape ?? defaultBeardShape,
+    beardHex: fp.beardHex ?? defaultNaturalHair,
+    faceInk: fp.faceInk ?? 'none',
+    neckTattoo: fp.neckTattoo ?? 'none',
+  };
+}
+
+function createSculptedHeadGeometry(profile: FighterProfile): THREE.BufferGeometry {
+  const fp = resolveFaceProfile(profile);
+  const geo = new THREE.SphereGeometry(0.106, 44, 34);
   const pos = geo.attributes.position;
 
   for (let i = 0; i < pos.count; i++) {
@@ -187,66 +218,78 @@ function createSculptedHeadGeometry(): THREE.BufferGeometry {
 
     const absZ = Math.abs(z);
 
-    // Cranial proportion (tall athletic skull)
+    // Individualized cranial height, facial width, and chin elongation
     y *= 1.12;
-    z *= 0.89;
+    if (y < 0) {
+      y *= 1 + (fp.chinLength - 1) * 0.72;
+    }
+    z *= 0.89 * fp.faceWidth;
 
-    // Athletic squared jaw & broad masculine chin (avoids conical taper)
+    // Athletic jaw width & chin contour tailored per fighter
     if (y < 0.014) {
-      const jawT = clamp((0.014 - y) / 0.118, 0, 1);
+      const jawT = clamp((0.014 - y) / 0.122, 0, 1);
       const chinRound = smoothstep(0.62, 1.0, jawT);
-      z *= 1 - jawT * 0.16 - chinRound * 0.11;
+      const jawNarrowFactor = clamp(0.16 / Math.max(0.8, fp.jawWidth), 0.09, 0.24);
+      z *= 1 - jawT * jawNarrowFactor - chinRound * 0.1;
 
       // Masseter / jaw corner fullness
-      if (x > -0.025 && x < 0.045 && y < -0.015 && y > -0.075 && absZ > 0.036) {
+      if (x > -0.025 && x < 0.045 && y < -0.015 && y > -0.08 && absZ > 0.034) {
         const jawCorner =
-          (1 - Math.abs(y + 0.045) / 0.032) * smoothstep(0.036, 0.068, absZ);
-        z += Math.sign(z) * Math.max(0, jawCorner) * 0.0085;
+          (1 - Math.abs(y + 0.046) / 0.035) * smoothstep(0.034, 0.068, absZ);
+        z += Math.sign(z) * Math.max(0, jawCorner) * 0.0095 * fp.jawWidth;
       }
 
-      // Broad forward chin eminence + labiomental lip cleft under lips
-      if (x > 0.02 && y < -0.045) {
-        const chinBroad = 1 - clamp(absZ / 0.056, 0, 1);
-        x += chinBroad * 0.011 * jawT;
+      // Forward chin eminence + labiomental cleft under lower lip
+      if (x > 0.02 && y < -0.044) {
+        const chinBroad = 1 - clamp(absZ / (0.054 * fp.jawWidth), 0, 1);
+        x += chinBroad * 0.0115 * jawT * fp.chinLength;
         if (y > -0.064 && y < -0.038 && absZ < 0.028) {
-          x -= 0.0045 * (1 - absZ / 0.028);
+          x -= 0.0048 * (1 - absZ / 0.028);
         }
       }
 
       // Subtle under-chin & occiput tuck
       if (x < -0.01) {
-        x *= 1 - jawT * 0.15;
+        x *= 1 - jawT * 0.16;
       }
     }
 
     // Cheekbones (zygomatic arch prominence)
-    if (x > 0.024 && y > -0.03 && y < 0.016 && absZ > 0.022 && absZ < 0.07) {
+    if (x > 0.022 && y > -0.03 && y < 0.018 && absZ > 0.022 && absZ < 0.072) {
       const cheekMask =
-        (1 - Math.abs(y + 0.007) / 0.023) *
-        (1 - Math.abs(absZ - 0.044) / 0.028);
-      x += Math.max(0, cheekMask) * 0.0095;
+        (1 - Math.abs(y + 0.006) / 0.024) *
+        (1 - Math.abs(absZ - 0.045) / 0.028);
+      x += Math.max(0, cheekMask) * 0.01 * fp.cheekHeight;
     }
 
-    // Defined brow ridge & deep recessed eye sockets
+    // Supraorbital brow ridge & deep recessed orbital eye sockets
     if (x > 0.032) {
-      if (y > 0.016 && y < 0.046 && absZ < 0.062) {
+      if (y > 0.015 && y < 0.047 && absZ < 0.064) {
         const browMask = 1 - Math.abs(y - 0.03) / 0.016;
-        x += Math.max(0, browMask) * 0.0105;
+        x += Math.max(0, browMask) * 0.011 * fp.browRidge;
       }
-      if (y > -0.006 && y < 0.02 && absZ > 0.013 && absZ < 0.052) {
+      if (y > -0.007 && y < 0.021 && absZ > 0.013 && absZ < 0.053) {
         const eyeMask =
           (1 - Math.abs(y - 0.008) / 0.014) *
           (1 - Math.abs(absZ - 0.031) / 0.02);
-        x -= Math.max(0, eyeMask) * 0.009;
+        x -= Math.max(0, eyeMask) * 0.0095;
       }
     }
 
-    // Integrated sculpted nasal bridge, nostril flare & tip
-    if (x > 0.042 && y > -0.034 && y < 0.026 && absZ < 0.018) {
-      const noseY = 1 - Math.abs(y + 0.007) / 0.031;
-      const noseZ = 1 - absZ / 0.018;
-      const tipBoost = y < -0.004 && y > -0.024 ? 1.3 : 0.88;
-      x += Math.max(0, noseY * noseZ) * 0.018 * tipBoost;
+    // Sculpted nasal bridge, nostril wing flare & nasal tip
+    const noseSpanZ = 0.019 * fp.noseWidth;
+    if (x > 0.04 && y > -0.036 * fp.noseLength && y < 0.026 && absZ < noseSpanZ) {
+      const noseY = 1 - Math.abs(y + 0.007 * fp.noseLength) / (0.032 * fp.noseLength);
+      const noseZ = 1 - absZ / noseSpanZ;
+      const tipBoost = y < -0.004 && y > -0.026 * fp.noseLength ? 1.35 : 0.9;
+      x += Math.max(0, noseY * noseZ) * 0.0185 * tipBoost;
+    }
+
+    // Sculpted subtle upper/lower lip shelf so mouth isn't flat on sphere
+    if (x > 0.05 && y > -0.045 && y < -0.018 && absZ < 0.028) {
+      const lipMask =
+        (1 - Math.abs(y + 0.031) / 0.014) * (1 - absZ / 0.028);
+      x += Math.max(0, lipMask) * 0.0052;
     }
 
     // Temple narrowing
@@ -257,6 +300,35 @@ function createSculptedHeadGeometry(): THREE.BufferGeometry {
     pos.setXYZ(i, x, y + 0.088, z);
   }
 
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function createSculptedBeardGeometry(profile: FighterProfile): THREE.BufferGeometry {
+  const fp = resolveFaceProfile(profile);
+  const geo = new THREE.SphereGeometry(0.1095, 28, 22, 0, Math.PI * 2, Math.PI * 0.48, Math.PI * 0.5);
+  const pos = geo.attributes.position;
+
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+
+    y *= 1.12 * (1 + (fp.chinLength - 1) * 0.58);
+    z *= 0.9 * fp.faceWidth * (0.94 + (fp.jawWidth - 1) * 0.65);
+
+    // Keep beard strictly around front/side mandible and chin, tapering away cleanly at back of neck
+    if (x < -0.02) {
+      x *= 0.72;
+      z *= 0.82;
+    } else if (x > 0.02 && y < -0.04) {
+      const chinMass = fp.beardShape === 'thickFullBeard' || fp.beardShape === 'chinstrapNoStache' ? 0.018 : 0.011;
+      const center = 1 - clamp(Math.abs(z) / 0.065, 0, 1);
+      x += center * chinMass;
+      y -= center * 0.008;
+    }
+    pos.setXYZ(i, x, y + 0.087, z);
+  }
   geo.computeVertexNormals();
   return geo;
 }
@@ -366,6 +438,7 @@ function createSculptedAbdomenGeometry(): THREE.BufferGeometry {
 }
 
 function createFaceTexture(profile: FighterProfile): THREE.CanvasTexture {
+  const fp = resolveFaceProfile(profile);
   const canvas = document.createElement('canvas');
   canvas.width = 768;
   canvas.height = 768;
@@ -378,43 +451,82 @@ function createFaceTexture(profile: FighterProfile): THREE.CanvasTexture {
   ctx.save();
   ctx.scale(S, S);
 
-  // Subtle natural skin tonal depth (no white center washout!)
+  // Subtle natural skin tonal depth & facial structure shading
   const faceShade = ctx.createRadialGradient(256, 245, 22, 256, 256, 175);
-  faceShade.addColorStop(0, 'rgba(255, 212, 182, 0.11)');
+  faceShade.addColorStop(0, 'rgba(255, 214, 184, 0.12)');
   faceShade.addColorStop(0.5, 'rgba(175, 92, 62, 0.08)');
-  faceShade.addColorStop(1, 'rgba(14, 6, 4, 0.38)');
+  faceShade.addColorStop(1, 'rgba(14, 6, 4, 0.4)');
   ctx.fillStyle = faceShade;
   ctx.fillRect(0, 0, 512, 512);
 
-  // Cheekbone vascular warmth + temporal shading
-  ctx.fillStyle = 'rgba(165, 58, 42, 0.12)';
+  // Cheekbone vascular warmth + hollow under-cheek shadow
+  ctx.fillStyle = 'rgba(165, 58, 42, 0.11)';
   ctx.beginPath();
-  ctx.ellipse(212, 272, 24, 15, 0, 0, Math.PI * 2);
-  ctx.ellipse(300, 272, 24, 15, 0, 0, Math.PI * 2);
+  ctx.ellipse(212, 272, 24, 14, 0, 0, Math.PI * 2);
+  ctx.ellipse(300, 272, 24, 14, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Jawline & under-cheek contour shadow for strong sculpted bone structure
-  ctx.fillStyle = 'rgba(18, 8, 5, 0.16)';
+  ctx.fillStyle = 'rgba(18, 8, 5, 0.18)';
   ctx.beginPath();
-  ctx.ellipse(202, 314, 18, 30, -0.35, 0, Math.PI * 2);
-  ctx.ellipse(310, 314, 18, 30, 0.35, 0, Math.PI * 2);
+  ctx.ellipse(200, 314, 18, 32, -0.34, 0, Math.PI * 2);
+  ctx.ellipse(312, 314, 18, 32, 0.34, 0, Math.PI * 2);
   ctx.fill();
 
-  // Hairline / scalp fade
-  if (profile.appearance.hairStyle !== 'shaved') {
+  // Subtle nasolabial & forehead grit lines
+  ctx.strokeStyle = 'rgba(22, 9, 6, 0.18)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(234, 282);
+  ctx.quadraticCurveTo(222, 305, 224, 325);
+  ctx.moveTo(278, 282);
+  ctx.quadraticCurveTo(290, 305, 288, 325);
+  ctx.stroke();
+
+  // Anatomical scalp hairline & temple sideburns (replaces flat stripe)
+  if (fp.hairModel !== 'shaved') {
+    const hairlineY = fp.hairModel === 'recedingBuzz' ? 148 : 164;
     ctx.fillStyle = profile.appearance.hairHex;
-    ctx.fillRect(0, 0, 512, 140);
-    const fadeGrad = ctx.createLinearGradient(0, 126, 0, 186);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(512, 0);
+    ctx.lineTo(512, 168);
+    ctx.quadraticCurveTo(375, 162, 322, hairlineY + 12);
+    ctx.quadraticCurveTo(256, hairlineY - (fp.hairModel === 'recedingBuzz' ? 24 : 4), 190, hairlineY + 12);
+    ctx.quadraticCurveTo(137, 162, 0, 168);
+    ctx.closePath();
+    ctx.fill();
+
+    // Soft hairline edge fade
+    const fadeGrad = ctx.createLinearGradient(0, hairlineY - 8, 0, hairlineY + 26);
     fadeGrad.addColorStop(0, profile.appearance.hairHex);
     fadeGrad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = fadeGrad;
-    ctx.fillRect(0, 126, 512, 60);
+    ctx.fillRect(156, hairlineY - 8, 200, 34);
+
+    // Tapered temple sideburns running neatly down beside cheeks
+    ctx.fillStyle = fp.beardHex;
+    ctx.globalAlpha = fp.hairModel === 'highFade' ? 0.35 : 0.72;
+    ctx.beginPath();
+    ctx.moveTo(166, 178);
+    ctx.lineTo(186, 184);
+    ctx.lineTo(184, 286);
+    ctx.lineTo(164, 272);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(346, 178);
+    ctx.lineTo(326, 184);
+    ctx.lineTo(328, 286);
+    ctx.lineTo(348, 272);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 
   // Deep-set orbital shadows & tear troughs
   for (const ex of [224, 288]) {
     const orb = ctx.createRadialGradient(ex, 244, 3, ex, 244, 24);
-    orb.addColorStop(0, 'rgba(18, 7, 5, 0.44)');
+    orb.addColorStop(0, 'rgba(18, 7, 5, 0.45)');
     orb.addColorStop(0.65, 'rgba(26, 10, 7, 0.2)');
     orb.addColorStop(1, 'rgba(20, 9, 6, 0)');
     ctx.fillStyle = orb;
@@ -423,76 +535,87 @@ function createFaceTexture(profile: FighterProfile): THREE.CanvasTexture {
     ctx.fill();
   }
 
-  // Intense thick fighter eyebrows
-  ctx.strokeStyle = profile.appearance.hairHex;
-  ctx.lineWidth = 7.2;
+  // Individualized Eyebrows (uses natural beardHex so bleached hair doesn't bleach brows!)
+  ctx.strokeStyle = fp.beardHex;
+  ctx.lineWidth = 6.8 * fp.eyebrowThickness;
   ctx.lineCap = 'round';
+  const browDrop = fp.eyebrowArch === 'stern' ? 5 : fp.eyebrowArch === 'arched' ? -3 : 1;
+  const browPeak = fp.eyebrowArch === 'arched' ? 214 : fp.eyebrowArch === 'stern' ? 218 : 220;
   ctx.beginPath();
-  ctx.moveTo(201, 227);
-  ctx.quadraticCurveTo(223, 218, 244, 230);
-  ctx.moveTo(268, 230);
-  ctx.quadraticCurveTo(289, 218, 311, 227);
+  ctx.moveTo(199, 228 - browDrop * 0.4);
+  ctx.quadraticCurveTo(222, browPeak, 245, 229 + browDrop);
+  ctx.moveTo(267, 229 + browDrop);
+  ctx.quadraticCurveTo(290, browPeak, 313, 228 - browDrop * 0.4);
   ctx.stroke();
 
-  // Photoreal Eyes (shaded natural sclera, dark limbal iris ring, pupil, upper lash shadow)
+  // Lifelike Fighter Eyes (shaded sclera, colored iris, dark limbal ring, lash line)
   for (const ex of [224, 288]) {
-    ctx.fillStyle = '#d8d0c7';
+    ctx.fillStyle = '#ddd5cb';
     ctx.beginPath();
-    ctx.ellipse(ex, 243, 10.5, 4.4, 0, 0, Math.PI * 2);
+    ctx.ellipse(ex, 243, 10.6, 4.3, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Iris
-    ctx.fillStyle = '#332015';
+    // Limbal dark ring + colored iris
+    ctx.fillStyle = '#120d0a';
     ctx.beginPath();
-    ctx.arc(ex, 243, 4.4, 0, Math.PI * 2);
+    ctx.arc(ex, 243, 4.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = fp.eyeColorHex;
+    ctx.beginPath();
+    ctx.arc(ex, 243, 3.8, 0, Math.PI * 2);
     ctx.fill();
 
     // Pupil
-    ctx.fillStyle = '#0a0706';
+    ctx.fillStyle = '#080504';
     ctx.beginPath();
-    ctx.arc(ex, 243, 2.2, 0, Math.PI * 2);
+    ctx.arc(ex, 243, 2.0, 0, Math.PI * 2);
     ctx.fill();
 
     // Upper eyelid shadow across top of eye
-    ctx.fillStyle = 'rgba(16, 7, 5, 0.34)';
+    ctx.fillStyle = 'rgba(16, 7, 5, 0.36)';
     ctx.beginPath();
-    ctx.ellipse(ex, 240, 10.6, 2.4, 0, 0, Math.PI * 2);
+    ctx.ellipse(ex, 240, 10.8, 2.5, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Specular catchlight
-    ctx.fillStyle = 'rgba(255,255,255,0.86)';
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
     ctx.beginPath();
     ctx.arc(ex + 1.3, 241.8, 1.0, 0, Math.PI * 2);
     ctx.fill();
 
     // Crisp upper eyelid crease
-    ctx.strokeStyle = 'rgba(20, 8, 6, 0.85)';
+    ctx.strokeStyle = 'rgba(20, 8, 6, 0.88)';
     ctx.lineWidth = 2.4;
     ctx.beginPath();
-    ctx.ellipse(ex, 242.5, 11, 4.8, 0, Math.PI * 1.06, Math.PI * 1.94);
+    ctx.ellipse(ex, 242.5, 11.2, 4.8, 0, Math.PI * 1.06, Math.PI * 1.94);
     ctx.stroke();
   }
 
-  // Nasal bridge side-contour shadow + highlight + nostrils
-  ctx.fillStyle = 'rgba(22, 9, 6, 0.16)';
-  ctx.fillRect(247, 236, 4, 44);
-  ctx.fillRect(261, 236, 4, 44);
-  ctx.fillStyle = 'rgba(255, 218, 190, 0.14)';
+  // Nasal bridge side-contour shadow + highlight + alae & nostrils scaled by noseWidth
+  const nw = fp.noseWidth;
+  ctx.fillStyle = 'rgba(22, 9, 6, 0.17)';
+  ctx.fillRect(256 - 9 * nw, 236, 4, 44);
+  ctx.fillRect(256 + 5 * nw, 236, 4, 44);
+  ctx.fillStyle = 'rgba(255, 220, 192, 0.16)';
   ctx.fillRect(253, 236, 6, 44);
-  ctx.fillStyle = 'rgba(22, 8, 5, 0.48)';
+  ctx.fillStyle = 'rgba(22, 8, 5, 0.5)';
   ctx.beginPath();
-  ctx.ellipse(247, 286, 4.4, 2.5, -0.25, 0, Math.PI * 2);
-  ctx.ellipse(265, 286, 4.4, 2.5, 0.25, 0, Math.PI * 2);
+  ctx.ellipse(256 - 9 * nw, 286, 4.5 * nw, 2.5, -0.25, 0, Math.PI * 2);
+  ctx.ellipse(256 + 9 * nw, 286, 4.5 * nw, 2.5, 0.25, 0, Math.PI * 2);
   ctx.fill();
 
-  // Philtrum & Lips + lower-lip shadow
-  ctx.fillStyle = 'rgba(24, 10, 8, 0.15)';
+  // Philtrum, Cupid's Bow Lips & lower-lip shadow
+  ctx.fillStyle = 'rgba(24, 10, 8, 0.16)';
   ctx.fillRect(253, 291, 6, 15);
-  ctx.fillStyle = 'rgba(120, 50, 44, 0.65)';
+  ctx.fillStyle = 'rgba(126, 54, 46, 0.68)';
   ctx.beginPath();
-  ctx.ellipse(256, 314, 19.5, 5.2, 0, 0, Math.PI * 2);
+  ctx.moveTo(236, 314);
+  ctx.quadraticCurveTo(248, 307, 256, 310);
+  ctx.quadraticCurveTo(264, 307, 276, 314);
+  ctx.quadraticCurveTo(256, 323, 236, 314);
+  ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = 'rgba(28, 10, 8, 0.86)';
+  ctx.strokeStyle = 'rgba(28, 10, 8, 0.88)';
   ctx.lineWidth = 2.2;
   ctx.beginPath();
   ctx.moveTo(236, 314);
@@ -505,35 +628,101 @@ function createFaceTexture(profile: FighterProfile): THREE.CanvasTexture {
   ctx.ellipse(256, 326, 13, 4.2, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Facial hair with crisp hair-grain stippling
-  const fh = profile.appearance.facialHair;
-  if (fh === 'fullBeard') {
-    ctx.fillStyle = profile.appearance.hairHex;
-    ctx.globalAlpha = 0.92;
+  // Face Ink & Brow Scars (e.g., Sean O'Malley cheekbone ink & under-eye tattoo)
+  if (fp.faceInk === 'omalley') {
+    ctx.strokeStyle = 'rgba(24, 48, 58, 0.78)';
+    ctx.lineWidth = 2.1;
     ctx.beginPath();
-    ctx.moveTo(188, 275);
-    ctx.quadraticCurveTo(192, 392, 256, 404);
-    ctx.quadraticCurveTo(320, 392, 324, 275);
-    ctx.lineTo(308, 304);
-    ctx.quadraticCurveTo(256, 336, 204, 304);
+    ctx.moveTo(205, 256);
+    ctx.lineTo(212, 266);
+    ctx.moveTo(208, 255);
+    ctx.lineTo(206, 266);
+    ctx.moveTo(298, 260);
+    ctx.quadraticCurveTo(311, 254, 322, 264);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(24, 44, 52, 0.75)';
+    ctx.font = 'italic bold 11px serif';
+    ctx.fillText('Suga', 292, 274);
+  } else if (fp.faceInk === 'hollowayTear') {
+    ctx.strokeStyle = 'rgba(72, 34, 24, 0.38)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(200, 219);
+    ctx.lineTo(211, 229);
+    ctx.stroke();
+  }
+
+  // Bespoke Fighter Facial Hair (8 styles + crisp hair grain)
+  const bShape = fp.beardShape;
+  ctx.fillStyle = fp.beardHex;
+  if (bShape === 'thickFullBeard' || bShape === 'fullBeard') {
+    ctx.globalAlpha = bShape === 'thickFullBeard' ? 0.96 : 0.9;
+    ctx.beginPath();
+    ctx.moveTo(182, 268);
+    ctx.quadraticCurveTo(186, 404, 256, 418);
+    ctx.quadraticCurveTo(326, 404, 330, 268);
+    ctx.lineTo(310, 300);
+    ctx.quadraticCurveTo(256, 332, 202, 300);
+    ctx.closePath();
+    ctx.fill();
+    // Crisp mustache
+    ctx.beginPath();
+    ctx.ellipse(256, 302, 26, 6.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  } else if (bShape === 'chinstrapNoStache') {
+    // Authentic Dagestani / Chechen chinstrap beard with cleanly shaved upper lip!
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath();
+    ctx.moveTo(182, 266);
+    ctx.quadraticCurveTo(188, 408, 256, 420);
+    ctx.quadraticCurveTo(324, 408, 330, 266);
+    ctx.lineTo(314, 294);
+    ctx.quadraticCurveTo(304, 342, 256, 340);
+    ctx.quadraticCurveTo(208, 342, 198, 294);
+    ctx.closePath();
+    ctx.fill();
+    // Chin soul-patch connector below lower lip (upper lip left completely bare!)
+    ctx.beginPath();
+    ctx.ellipse(256, 338, 12, 11, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  } else if (bShape === 'trimShortBeard') {
+    ctx.globalAlpha = 0.68;
+    ctx.beginPath();
+    ctx.moveTo(188, 278);
+    ctx.quadraticCurveTo(194, 392, 256, 402);
+    ctx.quadraticCurveTo(318, 392, 324, 278);
+    ctx.lineTo(306, 306);
+    ctx.quadraticCurveTo(256, 334, 206, 306);
     ctx.closePath();
     ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(256, 302, 25, 5.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(256, 303, 24, 4.8, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
-  } else if (fh === 'goatee') {
-    ctx.fillStyle = profile.appearance.hairHex;
+  } else if (bShape === 'goatee') {
     ctx.globalAlpha = 0.88;
     ctx.beginPath();
-    ctx.ellipse(256, 348, 22, 26, 0, 0, Math.PI * 2);
+    ctx.ellipse(256, 349, 21, 25, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
     ctx.ellipse(256, 303, 21, 4.8, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
-  } else if (fh === 'stubble') {
-    ctx.fillStyle = 'rgba(18, 14, 14, 0.26)';
+  } else if (bShape === 'mustacheOnly') {
+    ctx.globalAlpha = 0.82;
+    ctx.beginPath();
+    ctx.moveTo(230, 307);
+    ctx.quadraticCurveTo(256, 296, 282, 307);
+    ctx.quadraticCurveTo(256, 304, 230, 307);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(256, 334, 8, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  } else if (bShape === 'stubble') {
+    ctx.globalAlpha = 0.28;
     ctx.beginPath();
     ctx.moveTo(194, 286);
     ctx.quadraticCurveTo(256, 398, 318, 286);
@@ -541,15 +730,98 @@ function createFaceTexture(profile: FighterProfile): THREE.CanvasTexture {
     ctx.quadraticCurveTo(256, 374, 208, 344);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = 'rgba(18, 14, 14, 0.42)';
-    for (let i = 0; i < 320; i++) {
-      const gx = 202 + ((i * 73) % 108);
-      const gy = 294 + ((i * 41) % 76);
+    ctx.globalAlpha = 0.45;
+    for (let i = 0; i < 360; i++) {
+      const gx = 200 + ((i * 73) % 112);
+      const gy = 294 + ((i * 41) % 78);
       ctx.fillRect(gx, gy, 1.3, 1.3);
     }
+    ctx.globalAlpha = 1;
   }
 
   ctx.restore();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function createNeckTexture(profile: FighterProfile): THREE.CanvasTexture {
+  const fp = resolveFaceProfile(profile);
+  const canvas = document.createElement('canvas');
+  canvas.width = 384;
+  canvas.height = 384;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = profile.appearance.skinHex;
+  ctx.fillRect(0, 0, 384, 384);
+
+  // Subtle throat & sternocleidomastoid V-muscle shading (front is x=192)
+  ctx.strokeStyle = 'rgba(20, 8, 5, 0.18)';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(118, 40);
+  ctx.quadraticCurveTo(156, 220, 188, 360);
+  ctx.moveTo(266, 40);
+  ctx.quadraticCurveTo(228, 220, 196, 360);
+  ctx.stroke();
+
+  const inkDark = 'rgba(18, 25, 34, 0.74)';
+  const inkMid = 'rgba(22, 30, 40, 0.48)';
+  ctx.fillStyle = inkDark;
+  ctx.strokeStyle = inkDark;
+
+  if (fp.neckTattoo === 'oliveira') {
+    // Charles Oliveira iconic dual cursive vertical script on both sides of the neck
+    ctx.save();
+    ctx.font = 'italic bold 22px serif';
+    ctx.textAlign = 'center';
+    for (const sideX of [136, 248]) {
+      ctx.save();
+      ctx.translate(sideX, 196);
+      ctx.rotate(sideX < 192 ? 0.12 : -0.12);
+      ctx.fillText('Bronx', 0, -28);
+      ctx.fillText('Favela', 0, 14);
+      ctx.restore();
+    }
+    ctx.restore();
+  } else if (fp.neckTattoo === 'topuriaWings') {
+    // Ilia Topuria sculpted dark throat/collarbone script & crest
+    ctx.fillStyle = inkMid;
+    ctx.beginPath();
+    ctx.moveTo(148, 270);
+    ctx.quadraticCurveTo(192, 228, 236, 270);
+    ctx.quadraticCurveTo(192, 326, 148, 270);
+    ctx.fill();
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
+  } else if (fp.neckTattoo === 'aspinallNeck') {
+    // Dense shaded wraparound neck sleeve
+    ctx.fillStyle = inkMid;
+    ctx.fillRect(62, 125, 260, 220);
+    ctx.lineWidth = 3.5;
+    for (let y = 140; y < 340; y += 26) {
+      ctx.beginPath();
+      ctx.moveTo(64, y);
+      ctx.bezierCurveTo(128, y - 14, 256, y + 14, 320, y);
+      ctx.stroke();
+    }
+  } else if (fp.neckTattoo === 'omalleyNeck') {
+    // Stylized throat owl / mandala ink
+    ctx.fillStyle = 'rgba(26, 56, 64, 0.65)';
+    ctx.beginPath();
+    ctx.arc(192, 220, 36, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  } else if (fp.neckTattoo === 'hollowayNeck' || fp.neckTattoo === 'diazNeck') {
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(118, 278);
+    ctx.quadraticCurveTo(192, 248, 266, 278);
+    ctx.stroke();
+  }
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
@@ -1099,10 +1371,12 @@ export function buildFighterRig(
   const bScale = profile.buildScale;
   root.scale.set(bScale, hScale, bScale);
 
+  const fp = resolveFaceProfile(profile);
   const skinTex = createSkinTexture(profile);
   const abdomenTex = createAbdomenTexture(profile);
   const legTex = createLegSkinTexture(profile);
   const faceTex = createFaceTexture(profile);
+  const neckTex = createNeckTexture(profile);
   const armTex = createArmSkinTexture(profile);
   const shortsTex = createShortsTexture(profile);
   const skinBump = createSkinBumpTexture();
@@ -1137,6 +1411,15 @@ export function buildFighterRig(
     metalness: 0.02,
   });
 
+  const neckMat = new THREE.MeshStandardMaterial({
+    map: neckTex,
+    bumpMap: skinBump,
+    bumpScale: 0.0035,
+    color: 0xffffff,
+    roughness: 0.52,
+    metalness: 0.02,
+  });
+
   const armRightMat = new THREE.MeshStandardMaterial({
     map: armTex,
     bumpMap: skinBump,
@@ -1159,7 +1442,7 @@ export function buildFighterRig(
     bumpMap: skinBump,
     bumpScale: 0.003,
     color: 0xffffff,
-    roughness: 0.5,
+    roughness: fp.hairModel === 'shaved' ? 0.45 : 0.5,
     metalness: 0.01,
   });
 
@@ -1184,8 +1467,20 @@ export function buildFighterRig(
 
   const hairMat = new THREE.MeshStandardMaterial({
     color: profile.appearance.hairHex,
-    roughness: 0.88,
+    roughness: 0.9,
     metalness: 0.02,
+  });
+
+  const hairAccentMat = new THREE.MeshStandardMaterial({
+    color: fp.hairAccentHex,
+    roughness: 0.9,
+    metalness: 0.02,
+  });
+
+  const beardMat = new THREE.MeshStandardMaterial({
+    color: fp.beardHex,
+    roughness: 0.94,
+    metalness: 0.01,
   });
 
   const wrapMat = new THREE.MeshStandardMaterial({
@@ -1255,7 +1550,7 @@ export function buildFighterRig(
 
   const neckMesh = new THREE.Mesh(
     new THREE.CylinderGeometry(0.058, 0.084, 0.125, 24),
-    limbSkinMat,
+    neckMat,
   );
   neckMesh.position.y = 0.036;
   neckMesh.castShadow = true;
@@ -1265,70 +1560,236 @@ export function buildFighterRig(
   head.position.set(0, 0.098, 0.01);
   neck.add(head);
 
-  const skullMesh = new THREE.Mesh(createSculptedHeadGeometry(), faceMat);
+  const skullMesh = new THREE.Mesh(createSculptedHeadGeometry(profile), faceMat);
   skullMesh.rotation.y = -Math.PI / 2;
   skullMesh.castShadow = true;
   head.add(skullMesh);
 
-  // Sculpted Ears
-  const earGeo = new THREE.SphereGeometry(0.021, 10, 10);
-  const earL = new THREE.Mesh(earGeo, limbSkinMat);
-  earL.position.set(-0.084, 0.082, -0.008);
-  earL.scale.set(0.38, 1.15, 0.72);
-  const earR = earL.clone();
-  earR.position.x = 0.084;
-  head.add(earL, earR);
-
-  // Sculpted 3D Hair Crown
-  if (profile.appearance.hairStyle !== 'shaved') {
-    const hairCap = new THREE.Mesh(
-      new THREE.SphereGeometry(0.107, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.48),
-      hairMat,
-    );
-    hairCap.position.set(0, 0.098, -0.012);
-    hairCap.scale.set(0.89, 1.11, 0.96);
-    if (profile.appearance.hairStyle === 'textured') {
-      hairCap.scale.set(0.94, 1.2, 1.04);
-    }
-    head.add(hairCap);
+  // Volumetric 3D Jaw Beard for thick beards & Dagestani chinstraps
+  if (fp.beardShape === 'thickFullBeard' || fp.beardShape === 'chinstrapNoStache') {
+    const beardMesh = new THREE.Mesh(createSculptedBeardGeometry(profile), beardMat);
+    beardMesh.rotation.y = -Math.PI / 2;
+    beardMesh.castShadow = true;
+    head.add(beardMesh);
   }
 
-  // Arms builder helper (tucked inward into pectoral-lat pocket, zero floating ball cap)
+  // Sculpted Multi-Part Ears (outer helix + inner concha recess + optional cauliflower bulge)
+  const earInnerMat = new THREE.MeshStandardMaterial({
+    color: profile.appearance.skinHex,
+    roughness: 0.72,
+    metalness: 0.01,
+  });
+  earInnerMat.color.multiplyScalar(0.72);
+
+  const earGeo = new THREE.SphereGeometry(0.021, 12, 10);
+  const conchaGeo = new THREE.SphereGeometry(0.013, 10, 8);
+  const buildEar = (side: -1 | 1) => {
+    const earGroup = new THREE.Group();
+    earGroup.position.set(side * 0.087 * fp.faceWidth, 0.082, -0.008);
+    earGroup.scale.setScalar(fp.earSize);
+
+    const outerPinna = new THREE.Mesh(earGeo, limbSkinMat);
+    outerPinna.scale.set(fp.cauliflowerEars ? 0.5 : 0.36, 1.15, 0.72);
+    outerPinna.rotation.z = side * -0.14;
+    earGroup.add(outerPinna);
+
+    const innerConcha = new THREE.Mesh(conchaGeo, earInnerMat);
+    innerConcha.position.set(side * 0.002, -0.001, 0.002);
+    innerConcha.scale.set(0.32, 0.9, 0.56);
+    earGroup.add(innerConcha);
+
+    if (fp.cauliflowerEars) {
+      const cauliSwelling = new THREE.Mesh(conchaGeo, limbSkinMat);
+      cauliSwelling.position.set(side * 0.003, 0.006, -0.001);
+      cauliSwelling.scale.set(0.58, 0.72, 0.72);
+      earGroup.add(cauliSwelling);
+    }
+    head.add(earGroup);
+  };
+  buildEar(-1);
+  buildEar(1);
+
+  // Bespoke Multi-Part 3D Hairstyles
+  const hModel = fp.hairModel;
+  const fw = fp.faceWidth;
+  if (hModel === 'curlyAfro') {
+    // Voluminous multi-puff curly afro (e.g. Sean O'Malley pink/blue/teal curls)
+    const puffs: Array<[number, number, number, number, boolean]> = [
+      [0, 0.175, -0.006, 0.068, false],
+      [-0.056, 0.162, 0.014, 0.058, false],
+      [0.056, 0.162, 0.014, 0.058, true],
+      [-0.072, 0.132, -0.032, 0.056, false],
+      [0.072, 0.132, -0.032, 0.056, true],
+      [0, 0.145, -0.062, 0.062, false],
+      [-0.044, 0.105, -0.074, 0.052, false],
+      [0.044, 0.105, -0.074, 0.052, true],
+      [-0.034, 0.178, 0.036, 0.052, false],
+      [0.034, 0.178, 0.036, 0.052, true],
+    ];
+    for (const [px, py, pz, r, useAccent] of puffs) {
+      const puff = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 12, 10),
+        useAccent ? hairAccentMat : hairMat,
+      );
+      puff.position.set(px * fw, py, pz);
+      puff.castShadow = true;
+      head.add(puff);
+    }
+  } else if (hModel === 'pompadour') {
+    const baseCap = new THREE.Mesh(
+      new THREE.SphereGeometry(0.106, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.42),
+      hairMat,
+    );
+    baseCap.position.set(0, 0.104, -0.016);
+    baseCap.scale.set(0.89 * fw, 1.09, 0.94);
+    head.add(baseCap);
+
+    const quiff = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.036, 0.088, 6, 12),
+      hairMat,
+    );
+    quiff.rotation.x = Math.PI * 0.46;
+    quiff.position.set(0, 0.178, 0.016);
+    quiff.scale.set(1.38 * fw, 1.0, 0.82);
+    quiff.castShadow = true;
+    head.add(quiff);
+  } else if (hModel === 'bangs') {
+    // Swept fringe bangs + thick back nape (Diego Lopes / Chan Sung Jung)
+    const crown = new THREE.Mesh(
+      new THREE.SphereGeometry(0.109, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.48),
+      hairMat,
+    );
+    crown.position.set(0, 0.104, -0.012);
+    crown.scale.set(0.92 * fw, 1.15, 1.0);
+    head.add(crown);
+
+    const fringe = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.025, 0.095, 5, 10),
+      hairMat,
+    );
+    fringe.rotation.z = Math.PI * 0.44;
+    fringe.rotation.y = 0.22;
+    fringe.position.set(-0.008, 0.156, 0.068);
+    fringe.scale.set(0.85, 1.0, 0.65);
+    head.add(fringe);
+
+    const nape = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.036, 0.075, 5, 10),
+      hairMat,
+    );
+    nape.position.set(0, 0.078, -0.078);
+    nape.scale.set(1.55 * fw, 1.0, 0.78);
+    head.add(nape);
+  } else if (hModel === 'samuraiTop') {
+    // Shaved sides + central swept crest & rear top-knot (Jiri Prochazka)
+    const crest = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.024, 0.11, 5, 10),
+      hairMat,
+    );
+    crest.rotation.x = Math.PI * 0.44;
+    crest.position.set(0, 0.184, -0.006);
+    crest.scale.set(0.75, 1.0, 0.85);
+    head.add(crest);
+
+    const topKnot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.03, 12, 10),
+      hairMat,
+    );
+    topKnot.position.set(0, 0.168, -0.085);
+    topKnot.scale.set(0.85, 1.15, 1.25);
+    head.add(topKnot);
+  } else if (hModel === 'texturedCrop') {
+    // Layered textured short crop tufts on crown (Oliveira / Sandhagen / Rakhmonov)
+    const cap = new THREE.Mesh(
+      new THREE.SphereGeometry(0.107, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.44),
+      hairMat,
+    );
+    cap.position.set(0, 0.102, -0.012);
+    cap.scale.set(0.9 * fw, 1.12, 0.96);
+    head.add(cap);
+    for (const [tx, tz] of [
+      [-0.032, 0.028],
+      [0.028, 0.034],
+      [0, 0.004],
+      [-0.024, -0.034],
+      [0.026, -0.032],
+    ]) {
+      const tuft = new THREE.Mesh(
+        new THREE.SphereGeometry(0.034, 10, 8),
+        hairMat,
+      );
+      tuft.position.set(tx * fw, 0.178, tz);
+      tuft.scale.set(1.05, 0.55, 1.05);
+      head.add(tuft);
+    }
+  } else if (hModel === 'highFade') {
+    // Tapered crown top cap with clean fade sides
+    const topCap = new THREE.Mesh(
+      new THREE.SphereGeometry(0.104, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.36),
+      hairMat,
+    );
+    topCap.position.set(0, 0.108, -0.008);
+    topCap.scale.set(0.86 * fw, 1.13, 0.93);
+    head.add(topCap);
+  } else if (hModel === 'buzz' || hModel === 'recedingBuzz') {
+    // Ultra-close cranial buzz hugging skull cleanly
+    const buzzCap = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1065, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.43),
+      hairMat,
+    );
+    buzzCap.position.set(0, 0.095, hModel === 'recedingBuzz' ? -0.018 : -0.01);
+    buzzCap.scale.set(0.895 * fw, 1.115, 0.95);
+    head.add(buzzCap);
+  }
+
+  // Upper Limb Builder: clavicle -> shoulderPivot -> upperArm -> elbowPivot -> forearm -> fist
   const buildArm = (side: -1 | 1) => {
     const mat = side === 1 ? armRightMat : armLeftMat;
     const clavicle = new THREE.Group();
-    clavicle.position.set(side * 0.174, 0.202, 0);
+    clavicle.position.set(side * 0.145, 0.218, 0);
     chest.add(clavicle);
 
-    const shoulderMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.062, 20, 16),
-      mat,
-    );
-    shoulderMesh.position.y = -0.01;
-    shoulderMesh.scale.set(1.06, 1.16, 0.94);
-    shoulderMesh.castShadow = true;
-    clavicle.add(shoulderMesh);
+    // Shoulder joint ball-and-socket pivot
+    const shoulderPivot = new THREE.Group();
+    shoulderPivot.position.set(side * 0.036, -0.014, 0);
+    clavicle.add(shoulderPivot);
 
     const upperArm = new THREE.Group();
-    clavicle.add(upperArm);
+    shoulderPivot.add(upperArm);
 
+    // Deltoid muscle cap attached cleanly to upperArm so it rotates with the humerus
+    const deltoidMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.061, 20, 16),
+      mat,
+    );
+    deltoidMesh.position.set(0, -0.01, 0);
+    deltoidMesh.scale.set(1.04, 1.18, 0.94);
+    deltoidMesh.castShadow = true;
+    upperArm.add(deltoidMesh);
+
+    // Sculpted bicep/tricep humerus profile hanging downward along -Y
     const bicepProfile = [
-      new THREE.Vector2(0.041, -0.264),
-      new THREE.Vector2(0.045, -0.238),
+      new THREE.Vector2(0.04, -0.265),
+      new THREE.Vector2(0.045, -0.236),
       new THREE.Vector2(0.056, -0.145),
-      new THREE.Vector2(0.06, -0.04),
-      new THREE.Vector2(0.052, 0.014),
+      new THREE.Vector2(0.059, -0.045),
+      new THREE.Vector2(0.05, 0.012),
     ];
     const bicepMesh = new THREE.Mesh(
       new THREE.LatheGeometry(bicepProfile, 20),
       mat,
     );
+    bicepMesh.scale.set(0.96, 1.0, 1.06);
     bicepMesh.castShadow = true;
     upperArm.add(bicepMesh);
 
+    // Elbow hinge pivot at end of upperArm
+    const elbowPivot = new THREE.Group();
+    elbowPivot.position.set(0, -0.265, 0);
+    upperArm.add(elbowPivot);
+
     const forearm = new THREE.Group();
-    forearm.position.set(0, -0.26, 0);
-    upperArm.add(forearm);
+    elbowPivot.add(forearm);
 
     const elbowCap = new THREE.Mesh(
       new THREE.SphereGeometry(0.041, 14, 12),
@@ -1337,10 +1798,10 @@ export function buildFighterRig(
     forearm.add(elbowCap);
 
     const forearmProfile = [
-      new THREE.Vector2(0.03, -0.238),
-      new THREE.Vector2(0.034, -0.212),
-      new THREE.Vector2(0.046, -0.085),
-      new THREE.Vector2(0.042, -0.015),
+      new THREE.Vector2(0.029, -0.24),
+      new THREE.Vector2(0.033, -0.212),
+      new THREE.Vector2(0.047, -0.088),
+      new THREE.Vector2(0.043, -0.016),
       new THREE.Vector2(0.036, 0.012),
     ];
     const forearmMesh = new THREE.Mesh(
@@ -1350,49 +1811,61 @@ export function buildFighterRig(
     forearmMesh.castShadow = true;
     forearm.add(forearmMesh);
 
-    const glove = new THREE.Group();
-    glove.position.set(0, -0.235, 0);
-    forearm.add(glove);
+    // Wrist/Fist pivot with UFC wrist tape, padded MMA glove, knuckle bar & thumb
+    const fist = new THREE.Group();
+    fist.position.set(0, -0.238, 0);
+    forearm.add(fist);
 
     const tapeMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.038, 0.034, 0.056, 16),
+      new THREE.CylinderGeometry(0.037, 0.033, 0.056, 16),
       tapeMat,
     );
-    tapeMesh.position.y = -0.018;
-    glove.add(tapeMesh);
+    tapeMesh.position.y = -0.016;
+    fist.add(tapeMesh);
 
     const padMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.052, 16, 14),
+      new THREE.SphereGeometry(0.051, 16, 14),
       gloveMat,
     );
     padMesh.position.set(0, -0.066, 0.012);
-    padMesh.scale.set(0.95, 1.12, 0.85);
+    padMesh.scale.set(0.94, 1.1, 0.86);
     padMesh.castShadow = true;
-    glove.add(padMesh);
+    fist.add(padMesh);
+
+    const knuckleRidge = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.02, 0.042, 4, 8),
+      gloveMat,
+    );
+    knuckleRidge.rotation.z = Math.PI / 2;
+    knuckleRidge.position.set(0, -0.084, 0.034);
+    fist.add(knuckleRidge);
 
     const thumbMesh = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.015, 0.03, 4, 8),
       gloveMat,
     );
-    thumbMesh.position.set(-side * 0.04, -0.07, 0.024);
+    thumbMesh.position.set(-side * 0.04, -0.068, 0.024);
     thumbMesh.rotation.z = side * 0.4;
-    glove.add(thumbMesh);
+    fist.add(thumbMesh);
 
-    return { clavicle, upperArm, forearm, glove };
+    return { clavicle, shoulderPivot, upperArm, elbowPivot, forearm, fist };
   };
 
   const leftArm = buildArm(-1);
   const rightArm = buildArm(1);
 
-  // Legs builder helper
+  // Lower Limb Builder: hipPivot -> thigh -> kneePivot -> shin -> anklePivot -> foot
   const buildLeg = (
     side: -1 | 1,
     hasKneeSleeve: boolean,
     hasAnkleWrap: boolean,
   ) => {
+    const hipPivot = new THREE.Group();
+    hipPivot.position.set(side * 0.104, -0.044, 0);
+    pelvis.add(hipPivot);
+
     const thigh = new THREE.Group();
-    thigh.position.set(side * 0.102, -0.045, 0);
-    pelvis.add(thigh);
+    hipPivot.add(thigh);
 
     const hipCap = new THREE.Mesh(
       new THREE.SphereGeometry(0.086, 16, 14),
@@ -1411,20 +1884,25 @@ export function buildFighterRig(
     const quadProfile = [
       new THREE.Vector2(0.001, -0.41),
       new THREE.Vector2(0.054, -0.39),
-      new THREE.Vector2(0.074, -0.22),
-      new THREE.Vector2(0.082, -0.06),
+      new THREE.Vector2(0.075, -0.22),
+      new THREE.Vector2(0.083, -0.06),
       new THREE.Vector2(0.001, 0.0),
     ];
     const quadMesh = new THREE.Mesh(
       new THREE.LatheGeometry(quadProfile, 20),
       limbSkinMat,
     );
+    quadMesh.scale.set(0.96, 1.0, 1.06);
     quadMesh.castShadow = true;
     thigh.add(quadMesh);
 
+    // Knee hinge pivot
+    const kneePivot = new THREE.Group();
+    kneePivot.position.set(0, -0.405, 0);
+    thigh.add(kneePivot);
+
     const shin = new THREE.Group();
-    shin.position.set(0, -0.405, 0);
-    thigh.add(shin);
+    kneePivot.add(shin);
 
     const kneeCap = new THREE.Mesh(
       new THREE.SphereGeometry(0.054, 14, 12),
@@ -1443,8 +1921,8 @@ export function buildFighterRig(
 
     const calfProfile = [
       new THREE.Vector2(0.001, -0.41),
-      new THREE.Vector2(0.037, -0.38),
-      new THREE.Vector2(0.057, -0.17),
+      new THREE.Vector2(0.036, -0.382),
+      new THREE.Vector2(0.058, -0.165),
       new THREE.Vector2(0.054, -0.02),
       new THREE.Vector2(0.001, 0.0),
     ];
@@ -1456,20 +1934,24 @@ export function buildFighterRig(
     shin.add(calfMesh);
 
     if (hasAnkleWrap) {
-      const ankle = new THREE.Mesh(
+      const ankleWrap = new THREE.Mesh(
         new THREE.CylinderGeometry(0.043, 0.041, 0.105, 16),
         wrapMat,
       );
-      ankle.position.y = -0.355;
-      shin.add(ankle);
+      ankleWrap.position.y = -0.355;
+      shin.add(ankleWrap);
     }
 
+    // Ankle pivot & grounded anatomical foot
+    const anklePivot = new THREE.Group();
+    anklePivot.position.set(0, -0.405, 0);
+    shin.add(anklePivot);
+
     const foot = new THREE.Group();
-    foot.position.set(0, -0.405, 0);
-    shin.add(foot);
+    anklePivot.add(foot);
 
     const footMesh = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.035, 0.125, 6, 12),
+      new THREE.CapsuleGeometry(0.035, 0.13, 6, 12),
       hasAnkleWrap ? wrapMat : limbSkinMat,
     );
     footMesh.rotation.x = Math.PI / 2;
@@ -1478,7 +1960,7 @@ export function buildFighterRig(
     footMesh.castShadow = true;
     foot.add(footMesh);
 
-    return { thigh, shin, foot };
+    return { hipPivot, thigh, kneePivot, shin, anklePivot, foot };
   };
 
   const leftLeg = buildLeg(
@@ -1496,18 +1978,28 @@ export function buildFighterRig(
     neck,
     head,
     clavicleL: leftArm.clavicle,
+    shoulderPivotL: leftArm.shoulderPivot,
     upperArmL: leftArm.upperArm,
+    elbowPivotL: leftArm.elbowPivot,
     forearmL: leftArm.forearm,
-    gloveL: leftArm.glove,
+    fistL: leftArm.fist,
     clavicleR: rightArm.clavicle,
+    shoulderPivotR: rightArm.shoulderPivot,
     upperArmR: rightArm.upperArm,
+    elbowPivotR: rightArm.elbowPivot,
     forearmR: rightArm.forearm,
-    gloveR: rightArm.glove,
+    fistR: rightArm.fist,
+    hipPivotL: leftLeg.hipPivot,
     thighL: leftLeg.thigh,
+    kneePivotL: leftLeg.kneePivot,
     shinL: leftLeg.shin,
+    anklePivotL: leftLeg.anklePivot,
     footL: leftLeg.foot,
+    hipPivotR: rightLeg.hipPivot,
     thighR: rightLeg.thigh,
+    kneePivotR: rightLeg.kneePivot,
     shinR: rightLeg.shin,
+    anklePivotR: rightLeg.anklePivot,
     footR: rightLeg.foot,
     skinMaterial: skinMat,
     abdomenSkinMaterial: abdomenSkinMat,
@@ -1516,536 +2008,108 @@ export function buildFighterRig(
   };
 }
 
-function getStanceGuardPose(
-  stance: Stance,
-  gaitPhase: number,
-  speed: number,
-  timeSec: number,
-): PoseAngles {
-  const s = stance === 'orthodox' ? 1 : -1;
-  const moveBlend = Math.min(1, speed / 2.2);
-  const bounce = Math.sin(timeSec * 6.2) * 0.017;
-  const breath = Math.sin(timeSec * 2.4) * 0.016;
-  const weightShift = Math.sin(timeSec * 3.1) * 0.04;
-  const stride = Math.sin(gaitPhase) * moveBlend;
-  const kneeLift = Math.max(0, Math.cos(gaitPhase)) * moveBlend;
-
-  const pose = createZeroPose();
-  pose.pelvisY = 0.902 + bounce - moveBlend * 0.022;
-  pose.pelvisZ = weightShift * 0.35;
-  pose.pelvisRotY = -0.4 * s + stride * 0.1;
-  pose.abdomenRotX = 0.11 + Math.abs(weightShift) * 0.18 + breath;
-  pose.abdomenRotZ = weightShift * 0.38;
-  pose.chestRotX = 0.095 - breath * 0.6;
-  pose.chestRotY = -0.17 * s - stride * 0.05;
-  pose.chestRotZ = weightShift * 0.32;
-  pose.headRotX = -0.15;
-  pose.headRotY = 0.48 * s;
-  pose.headRotZ = -weightShift * 0.5;
-
-  const swayArm = Math.sin(timeSec * 6.2 + 0.65) * 0.04;
-  const roll = Math.cos(timeSec * 3.1) * 0.025;
-
-  if (stance === 'orthodox') {
-    pose.clavicleL = [0.04, 0.06, -0.05];
-    pose.clavicleR = [0.02, -0.04, 0.04];
-    pose.armL = [-0.94 + swayArm, -0.15 + roll, -0.23];
-    pose.forearmL = [-1.5 - swayArm * 0.55, 0.14, 0.25];
-    pose.armR = [-0.82 - swayArm, 0.16 - roll, 0.25];
-    pose.forearmR = [-1.76 + swayArm * 0.55, -0.14, -0.22];
-
-    pose.thighL = [-0.32 + stride * 0.28 - kneeLift * 0.14, 0.1, -0.08];
-    pose.shinL = [0.38 - stride * 0.08 + kneeLift * 0.2, 0, 0];
-    pose.footL = [-0.08 + kneeLift * 0.06, 0.08, 0];
-
-    pose.thighR = [0.24 - stride * 0.28, -0.12, 0.09];
-    pose.shinR = [0.3 + stride * 0.14, 0, 0];
-    pose.footR = [-0.21 - bounce * 1.4, -0.12, 0];
-  } else {
-    pose.clavicleR = [0.04, -0.06, 0.05];
-    pose.clavicleL = [0.02, 0.04, -0.04];
-    pose.armR = [-0.94 + swayArm, 0.15 - roll, 0.23];
-    pose.forearmR = [-1.5 - swayArm * 0.55, -0.14, -0.25];
-    pose.armL = [-0.82 - swayArm, -0.16 + roll, -0.25];
-    pose.forearmL = [-1.76 + swayArm * 0.55, 0.14, 0.22];
-
-    pose.thighR = [-0.32 + stride * 0.28 - kneeLift * 0.14, -0.1, 0.08];
-    pose.shinR = [0.38 - stride * 0.08 + kneeLift * 0.2, 0, 0];
-    pose.footR = [-0.08 + kneeLift * 0.06, -0.08, 0];
-
-    pose.thighL = [0.24 - stride * 0.28, 0.12, -0.09];
-    pose.shinL = [0.3 + stride * 0.14, 0, 0];
-    pose.footL = [-0.21 - bounce * 1.4, 0.12, 0];
-  }
-
-  return pose;
-}
-
-function getStrikePose(
-  strikeId: StrikeId,
-  stance: Stance,
-  progress: number,
-  base: PoseAngles,
-): PoseAngles {
-  const spec = STRIKES[strikeId];
-  const total = spec.windup + spec.active + spec.recovery;
-  const wEnd = spec.windup / total;
-  const aEnd = (spec.windup + spec.active) / total;
-
-  // Multi-phase kinetic chain curve:
-  // hipWave drives slightly before torso & arm snap, creating authentic MMA whip!
-  let armPower = 0;
-  let hipPower = 0;
-  let chamber = 0;
-  if (progress < wEnd) {
-    const u = progress / Math.max(0.001, wEnd);
-    chamber = Math.sin(u * Math.PI);
-    hipPower = easeInOutCubic(u) * 0.52;
-    armPower = easeInOutCubic(u) * 0.28;
-  } else if (progress <= aEnd) {
-    const u = (progress - wEnd) / Math.max(0.001, aEnd - wEnd);
-    hipPower = 0.52 + easeOutQuint(Math.min(1, u * 1.2)) * 0.48;
-    armPower = 0.28 + easeOutQuint(u) * 0.72;
-  } else {
-    const u = (progress - aEnd) / Math.max(0.001, 1 - aEnd);
-    hipPower = 1 - easeInOutCubic(u * 0.92);
-    armPower = 1 - easeInOutCubic(u);
-  }
-  const power = armPower;
-
-  const s = stance === 'orthodox' ? 1 : -1;
-  const p: PoseAngles = {
-    ...base,
-    clavicleL: [...base.clavicleL],
-    armL: [...base.armL],
-    forearmL: [...base.forearmL],
-    clavicleR: [...base.clavicleR],
-    armR: [...base.armR],
-    forearmR: [...base.forearmR],
-    thighL: [...base.thighL],
-    shinL: [...base.shinL],
-    footL: [...base.footL],
-    thighR: [...base.thighR],
-    shinR: [...base.shinR],
-    footR: [...base.footR],
-  };
-
-  const useLeft =
-    (stance === 'orthodox' && spec.isLeadSide) ||
-    (stance === 'southpaw' && !spec.isLeadSide);
-
-  if (!spec.isKick) {
-    if (strikeId === 'jab' || strikeId === 'cross') {
-      const isCross = strikeId === 'cross';
-      const twistDir = useLeft ? 1 : -1;
-      const coil = -twistDir * 0.2 * chamber * (isCross ? 1.45 : 0.7);
-      p.pelvisRotY =
-        lerp(base.pelvisRotY, twistDir * (isCross ? 0.72 : 0.34), hipPower) +
-        coil * 0.58;
-      p.abdomenRotY = lerp(
-        base.abdomenRotY,
-        twistDir * (isCross ? 0.42 : 0.22),
-        (hipPower + armPower) * 0.5,
-      );
-      p.chestRotY =
-        lerp(base.chestRotY, twistDir * (isCross ? 0.78 : 0.46), power) + coil;
-      p.abdomenRotX = lerp(base.abdomenRotX, isCross ? 0.3 : 0.18, power);
-      p.chestRotX = lerp(base.chestRotX, isCross ? 0.19 : 0.12, power);
-      p.headRotY = lerp(
-        base.headRotY,
-        -twistDir * (isCross ? 0.68 : 0.4),
-        power,
-      );
-      p.headRotX = lerp(base.headRotX, -0.27, power); // Chin tucked inside shoulder pocket
-      p.headRotZ = lerp(base.headRotZ, twistDir * 0.08, power);
-      p.pelvisY = base.pelvisY - hipPower * (isCross ? 0.07 : 0.032);
-      p.pelvisZ = hipPower * (isCross ? 0.11 : 0.06);
-
-      // Shoulder protraction on striking arm + chin-guard retraction on off arm
-      const leadClavSnap: [number, number, number] = [
-        0.12,
-        twistDir * 0.38,
-        twistDir * -0.15,
-      ];
-      const rearClavPull: [number, number, number] = [
-        -0.06,
-        -twistDir * 0.2,
-        twistDir * 0.09,
-      ];
-      if (useLeft) {
-        p.clavicleL = [
-          lerp(base.clavicleL[0], leadClavSnap[0], power),
-          lerp(base.clavicleL[1], leadClavSnap[1], power),
-          lerp(base.clavicleL[2], leadClavSnap[2], power),
-        ];
-        p.clavicleR = [
-          lerp(base.clavicleR[0], rearClavPull[0], power),
-          lerp(base.clavicleR[1], rearClavPull[1], power),
-          lerp(base.clavicleR[2], rearClavPull[2], power),
-        ];
-      } else {
-        p.clavicleR = [
-          lerp(base.clavicleR[0], leadClavSnap[0], power),
-          lerp(base.clavicleR[1], leadClavSnap[1], power),
-          lerp(base.clavicleR[2], leadClavSnap[2], power),
-        ];
-        p.clavicleL = [
-          lerp(base.clavicleL[0], rearClavPull[0], power),
-          lerp(base.clavicleL[1], rearClavPull[1], power),
-          lerp(base.clavicleL[2], rearClavPull[2], power),
-        ];
-      }
-
-      // Lower-body weight transfer + ball-of-foot pivot drive
-      if (isCross) {
-        if (stance === 'orthodox') {
-          p.thighL[0] = lerp(base.thighL[0], -0.46, hipPower);
-          p.shinL[0] = lerp(base.shinL[0], 0.56, hipPower);
-          p.thighR[0] = lerp(base.thighR[0], 0.4, hipPower);
-          p.thighR[1] = lerp(base.thighR[1], -0.34, hipPower);
-          p.footR[0] = lerp(base.footR[0], -0.54, hipPower);
-          p.footR[1] = lerp(base.footR[1], 0.36, hipPower);
-        } else {
-          p.thighR[0] = lerp(base.thighR[0], -0.46, hipPower);
-          p.shinR[0] = lerp(base.shinR[0], 0.56, hipPower);
-          p.thighL[0] = lerp(base.thighL[0], 0.4, hipPower);
-          p.thighL[1] = lerp(base.thighL[1], 0.34, hipPower);
-          p.footL[0] = lerp(base.footL[0], -0.54, hipPower);
-          p.footL[1] = lerp(base.footL[1], -0.36, hipPower);
-        }
-      } else {
-        // Quick jab step-in on lead knee
-        if (stance === 'orthodox') {
-          p.thighL[0] = lerp(base.thighL[0], -0.4, hipPower);
-          p.shinL[0] = lerp(base.shinL[0], 0.48, hipPower);
-        } else {
-          p.thighR[0] = lerp(base.thighR[0], -0.4, hipPower);
-          p.shinR[0] = lerp(base.shinR[0], 0.48, hipPower);
-        }
-      }
-
-      const extArm: [number, number, number] = [-1.58, twistDir * -0.07, 0];
-      const extForearm: [number, number, number] = [-0.06, 0, 0];
-      const guardArm: [number, number, number] = [
-        -1.15,
-        twistDir * 0.26,
-        twistDir * -0.22,
-      ];
-      const guardForearm: [number, number, number] = [-2.12, 0, 0];
-
-      if (useLeft) {
-        for (let k = 0; k < 3; k++) {
-          p.armL[k] = lerp(base.armL[k], extArm[k], power);
-          p.armR[k] = lerp(base.armR[k], guardArm[k], power);
-        }
-        p.forearmL[0] = lerp(base.forearmL[0], extForearm[0], power);
-        p.forearmR[0] = lerp(base.forearmR[0], guardForearm[0], power);
-      } else {
-        for (let k = 0; k < 3; k++) {
-          p.armR[k] = lerp(base.armR[k], extArm[k], power);
-          p.armL[k] = lerp(base.armL[k], guardArm[k], power);
-        }
-        p.forearmR[0] = lerp(base.forearmR[0], extForearm[0], power);
-        p.forearmL[0] = lerp(base.forearmL[0], guardForearm[0], power);
-      }
-    } else if (
-      strikeId === 'leadHook' ||
-      strikeId === 'rearHook' ||
-      strikeId === 'overhand' ||
-      strikeId === 'bodyHook' ||
-      strikeId === 'rearBodyHook'
-    ) {
-      const isBody = strikeId === 'bodyHook' || strikeId === 'rearBodyHook';
-      const isOverhand = strikeId === 'overhand';
-      const twistDir = useLeft ? 1 : -1;
-      const cockTwist = -twistDir * (isOverhand ? 0.6 : 0.48) * chamber;
-      p.pelvisRotY =
-        lerp(base.pelvisRotY, twistDir * (isOverhand ? 0.86 : 0.78), hipPower) +
-        cockTwist * 0.44;
-      p.abdomenRotY = lerp(base.abdomenRotY, twistDir * 0.48, (hipPower + power) * 0.5);
-      p.chestRotY =
-        lerp(base.chestRotY, twistDir * (isOverhand ? 0.98 : 0.92), power) +
-        cockTwist;
-      p.pelvisY =
-        base.pelvisY - (isBody ? 0.17 : isOverhand ? 0.12 : 0.055) * hipPower;
-      p.pelvisZ = hipPower * (isOverhand ? 0.13 : 0.075);
-      p.abdomenRotX = lerp(
-        base.abdomenRotX,
-        isBody ? 0.42 : isOverhand ? 0.38 : 0.2,
-        power,
-      );
-      p.abdomenRotZ = lerp(0, -twistDir * (isOverhand ? 0.34 : 0.22), power);
-      p.headRotY = lerp(base.headRotY, -twistDir * 0.72, power);
-      p.headRotX = lerp(base.headRotX, -0.22, power);
-      p.headRotZ = lerp(0, -twistDir * (isOverhand ? 0.24 : 0.08), power);
-
-      // Pivot plant foot cleanly during hooks & overhands
-      if (useLeft) {
-        p.thighL[1] = lerp(base.thighL[1], 0.32, hipPower);
-        p.footL[1] = lerp(base.footL[1], -0.32, hipPower);
-        p.thighL[0] = lerp(base.thighL[0], -0.44, hipPower);
-        p.shinL[0] = lerp(base.shinL[0], 0.52, hipPower);
-      } else {
-        p.thighR[1] = lerp(base.thighR[1], -0.34, hipPower);
-        p.footR[0] = lerp(base.footR[0], -0.48, hipPower);
-        p.footR[1] = lerp(base.footR[1], 0.36, hipPower);
-      }
-
-      const hookClav: [number, number, number] = [
-        0.1,
-        twistDir * 0.34,
-        twistDir * (isOverhand ? 0.2 : -0.12),
-      ];
-      if (useLeft)
-        p.clavicleL = hookClav.map((v, k) =>
-          lerp(base.clavicleL[k], v, power),
-        ) as [number, number, number];
-      else
-        p.clavicleR = hookClav.map((v, k) =>
-          lerp(base.clavicleR[k], v, power),
-        ) as [number, number, number];
-
-      const hookArm: [number, number, number] = [
-        isBody ? -0.94 : isOverhand ? -1.82 : -1.48,
-        twistDir * (isOverhand ? 0.56 : 0.82),
-        twistDir * (isOverhand ? -0.72 : -1.02),
-      ];
-      const hookForearm: [number, number, number] = [
-        isOverhand ? -0.88 : -1.5,
-        twistDir * 0.42,
-        0,
-      ];
-      const tightGuardArm: [number, number, number] = [
-        -1.22,
-        twistDir * 0.24,
-        twistDir * -0.16,
-      ];
-
-      if (useLeft) {
-        for (let k = 0; k < 3; k++) {
-          p.armL[k] = lerp(base.armL[k], hookArm[k], power);
-          p.armR[k] = lerp(base.armR[k], tightGuardArm[k], power);
-        }
-        p.forearmL[0] = lerp(base.forearmL[0], hookForearm[0], power);
-        p.forearmL[1] = lerp(base.forearmL[1], hookForearm[1], power);
-        p.forearmR[0] = lerp(base.forearmR[0], -2.1, power);
-      } else {
-        for (let k = 0; k < 3; k++) {
-          p.armR[k] = lerp(base.armR[k], hookArm[k], power);
-          p.armL[k] = lerp(base.armL[k], tightGuardArm[k], power);
-        }
-        p.forearmR[0] = lerp(base.forearmR[0], hookForearm[0], power);
-        p.forearmR[1] = lerp(base.forearmR[1], hookForearm[1], power);
-        p.forearmL[0] = lerp(base.forearmL[0], -2.1, power);
-      }
-    } else if (strikeId === 'leadUppercut' || strikeId === 'rearUppercut') {
-      const twistDir = useLeft ? 1 : -1;
-      const legDrive = clamp((armPower - 0.25) / 0.75, 0, 1);
-      p.pelvisY = base.pelvisY - 0.16 * chamber + 0.065 * legDrive;
-      p.pelvisRotY = lerp(base.pelvisRotY, twistDir * 0.62, hipPower);
-      p.abdomenRotY = lerp(base.abdomenRotY, twistDir * 0.35, power);
-      p.chestRotY = lerp(base.chestRotY, twistDir * 0.68, power);
-      p.chestRotX = lerp(base.chestRotX, -0.25, power);
-      p.headRotY = lerp(base.headRotY, -twistDir * 0.52, power);
-
-      // Dip knees in chamber then explode upward
-      p.thighL[0] = lerp(base.thighL[0], -0.58 * chamber + base.thighL[0] * 0.6, chamber);
-      p.shinL[0] = lerp(base.shinL[0], 0.72 * chamber + base.shinL[0] * 0.6, chamber);
-      p.thighR[0] = lerp(base.thighR[0], -0.4 * chamber + base.thighR[0], chamber);
-      p.shinR[0] = lerp(base.shinR[0], 0.62 * chamber + base.shinR[0], chamber);
-
-      const upClav: [number, number, number] = [
-        -0.14,
-        twistDir * 0.28,
-        twistDir * -0.16,
-      ];
-      if (useLeft)
-        p.clavicleL = upClav.map((v, k) =>
-          lerp(base.clavicleL[k], v, power),
-        ) as [number, number, number];
-      else
-        p.clavicleR = upClav.map((v, k) =>
-          lerp(base.clavicleR[k], v, power),
-        ) as [number, number, number];
-
-      const upArm: [number, number, number] = [-1.45 + chamber * 0.72, 0, 0];
-      const upFore: [number, number, number] = [-1.75, 0, 0];
-      if (useLeft) {
-        p.armL = [lerp(base.armL[0], upArm[0], power), base.armL[1], 0];
-        p.forearmL = [lerp(base.forearmL[0], upFore[0], power), 0, 0];
-        p.armR = [lerp(base.armR[0], -1.2, power), 0.24, 0.14];
-        p.forearmR = [lerp(base.forearmR[0], -2.1, power), 0, 0];
-      } else {
-        p.armR = [lerp(base.armR[0], upArm[0], power), base.armR[1], 0];
-        p.forearmR = [lerp(base.forearmR[0], upFore[0], power), 0, 0];
-        p.armL = [lerp(base.armL[0], -1.2, power), -0.24, -0.14];
-        p.forearmL = [lerp(base.forearmL[0], -2.1, power), 0, 0];
-      }
-    } else if (strikeId === 'spinningBackfist') {
-      const hipSpin =
-        easeInOutCubic(smoothstep(0.02, 0.84, progress)) * Math.PI * 2 * s;
-      const chestSpin =
-        easeInOutCubic(smoothstep(0.08, 0.9, progress)) * Math.PI * 2 * s;
-      p.pelvisY = base.pelvisY - 0.06 * Math.sin(progress * Math.PI);
-      p.pelvisRotY = base.pelvisRotY + hipSpin;
-      p.chestRotY = base.chestRotY + (chestSpin - hipSpin) * 0.55;
-      p.clavicleR = [0, -0.3 * power, 0];
-      p.armR = [-1.5, -0.38 * s, 0.96 * s * power];
-      p.forearmR = [-0.22 - chamber * 0.85, 0, 0];
-      p.armL = [-1.18, -0.25, -0.15];
-      p.forearmL = [-2.05, 0, 0];
-    }
-  } else {
-    // Authentic Muay Thai / UFC Roundhouse Kick:
-    // Plant foot opens outward -> Knee lifts tight -> Hip turns over -> Shin whips -> Re-chamber return
-    const isHigh = strikeId === 'headKick' || strikeId === 'leadHeadKick';
-    const isBody = strikeId === 'bodyKick' || strikeId === 'rearBodyKick';
-    const kickHeight = isHigh ? -1.86 : isBody ? -1.4 : -0.88;
-    const kickLeft = useLeft;
-    const dir = kickLeft ? -1 : 1;
-    const liftEnv = Math.sin(smoothstep(0.02, 0.96, progress) * Math.PI);
-    const kneeChamber = easeOutQuint(
-      Math.min(1, progress / Math.max(0.01, wEnd * 1.05)),
-    );
-    const whipExtend =
-      smoothstep(wEnd * 0.52, aEnd * 0.96, progress) *
-      (1 - smoothstep(aEnd, 0.95, progress));
-    const reChamber = smoothstep(aEnd * 0.92, 0.96, progress) * (1 - progress);
-
-    p.pelvisY = base.pelvisY - 0.025 * liftEnv;
-    p.pelvisRotY = lerp(base.pelvisRotY, -dir * 1.06, hipPower);
-    p.abdomenRotY = lerp(base.abdomenRotY, -dir * 0.28, power);
-    p.pelvisRotZ = lerp(0, dir * (isHigh ? 0.44 : 0.34), hipPower);
-    p.chestRotZ = lerp(0, dir * (isHigh ? 0.36 : 0.28), power);
-    p.chestRotX = lerp(base.chestRotX, -0.24, power);
-    p.headRotZ = lerp(0, -dir * 0.32, power);
-    p.headRotY = lerp(base.headRotY, dir * 0.84, power);
-
-    const shinFold = 1.08 * chamber + 0.55 * reChamber;
-
-    if (kickLeft) {
-      // Standing right leg external pivot on ball of foot
-      p.thighR[1] = lerp(base.thighR[1], 0.42, hipPower);
-      p.footR[0] = lerp(base.footR[0], -0.24, hipPower);
-      p.footR[1] = lerp(base.footR[1], -0.45, hipPower);
-      p.shinR[0] = lerp(base.shinR[0], 0.18, hipPower);
-
-      p.thighL = [
-        lerp(
-          base.thighL[0],
-          kickHeight,
-          kneeChamber * (1 - smoothstep(aEnd, 1, progress)),
-        ),
-        lerp(base.thighL[1], 0.42, hipPower),
-        lerp(base.thighL[2], -0.52, hipPower),
-      ];
-      p.shinL = [lerp(shinFold, 0.05, whipExtend), 0, 0];
-      p.footL = [lerp(0, 0.42, power), 0, 0];
-      // Left arm whips down-back for torque while right hand stays high at temple
-      p.armL = [
-        lerp(base.armL[0], 0.68, power),
-        0,
-        lerp(base.armL[2], -0.85, power),
-      ];
-      p.forearmL = [lerp(base.forearmL[0], -0.22, power), 0, 0];
-      p.armR = [lerp(base.armR[0], -1.24, power), 0.28, 0.16];
-      p.forearmR = [-2.12, 0, 0];
-    } else {
-      // Standing left leg external pivot on ball of foot
-      p.thighL[1] = lerp(base.thighL[1], -0.42, hipPower);
-      p.footL[0] = lerp(base.footL[0], -0.24, hipPower);
-      p.footL[1] = lerp(base.footL[1], 0.45, hipPower);
-      p.shinL[0] = lerp(base.shinL[0], 0.18, hipPower);
-
-      p.thighR = [
-        lerp(
-          base.thighR[0],
-          kickHeight,
-          kneeChamber * (1 - smoothstep(aEnd, 1, progress)),
-        ),
-        lerp(base.thighR[1], -0.42, hipPower),
-        lerp(base.thighR[2], 0.52, hipPower),
-      ];
-      p.shinR = [lerp(shinFold, 0.05, whipExtend), 0, 0];
-      p.footR = [lerp(0, 0.42, power), 0, 0];
-      // Right arm whips down-back while left hand stays high at temple
-      p.armR = [
-        lerp(base.armR[0], 0.68, power),
-        0,
-        lerp(base.armR[2], 0.85, power),
-      ];
-      p.forearmR = [lerp(base.forearmR[0], -0.22, power), 0, 0];
-      p.armL = [lerp(base.armL[0], -1.24, power), -0.28, -0.16];
-      p.forearmL = [-2.12, 0, 0];
-    }
-  }
-
-  return p;
-}
-
 function interpolatePose(
   rig: JointMap,
   target: PoseAngles,
   alphaBody: number,
   alphaLimbs: number,
 ) {
+  rig.pelvis.position.x = lerp(rig.pelvis.position.x, target.pelvisX, alphaBody);
   rig.pelvis.position.y = lerp(rig.pelvis.position.y, target.pelvisY, alphaBody);
   rig.pelvis.position.z = lerp(rig.pelvis.position.z, target.pelvisZ, alphaBody);
-  rig.pelvis.rotation.x = lerp(rig.pelvis.rotation.x, target.pelvisRotX, alphaBody);
-  rig.pelvis.rotation.y = lerp(rig.pelvis.rotation.y, target.pelvisRotY, alphaBody);
-  rig.pelvis.rotation.z = lerp(rig.pelvis.rotation.z, target.pelvisRotZ, alphaBody);
+  rig.pelvis.rotation.x = lerp(rig.pelvis.rotation.x, target.pelvisRot[0], alphaBody);
+  rig.pelvis.rotation.y = lerp(rig.pelvis.rotation.y, target.pelvisRot[1], alphaBody);
+  rig.pelvis.rotation.z = lerp(rig.pelvis.rotation.z, target.pelvisRot[2], alphaBody);
 
-  rig.abdomen.rotation.x = lerp(rig.abdomen.rotation.x, target.abdomenRotX, alphaBody);
-  rig.abdomen.rotation.y = lerp(rig.abdomen.rotation.y, target.abdomenRotY, alphaBody);
-  rig.abdomen.rotation.z = lerp(rig.abdomen.rotation.z, target.abdomenRotZ, alphaBody);
+  rig.abdomen.rotation.x = lerp(rig.abdomen.rotation.x, target.abdomenRot[0], alphaBody);
+  rig.abdomen.rotation.y = lerp(rig.abdomen.rotation.y, target.abdomenRot[1], alphaBody);
+  rig.abdomen.rotation.z = lerp(rig.abdomen.rotation.z, target.abdomenRot[2], alphaBody);
 
-  rig.chest.rotation.x = lerp(rig.chest.rotation.x, target.chestRotX, alphaBody);
-  rig.chest.rotation.y = lerp(rig.chest.rotation.y, target.chestRotY, alphaBody);
-  rig.chest.rotation.z = lerp(rig.chest.rotation.z, target.chestRotZ, alphaBody);
+  rig.chest.rotation.x = lerp(rig.chest.rotation.x, target.chestRot[0], alphaBody);
+  rig.chest.rotation.y = lerp(rig.chest.rotation.y, target.chestRot[1], alphaBody);
+  rig.chest.rotation.z = lerp(rig.chest.rotation.z, target.chestRot[2], alphaBody);
 
-  rig.head.rotation.x = lerp(rig.head.rotation.x, target.headRotX, alphaBody);
-  rig.head.rotation.y = lerp(rig.head.rotation.y, target.headRotY, alphaBody);
-  rig.head.rotation.z = lerp(rig.head.rotation.z, target.headRotZ, alphaBody);
+  rig.neck.rotation.x = lerp(rig.neck.rotation.x, target.neckRot[0], alphaBody);
+  rig.neck.rotation.y = lerp(rig.neck.rotation.y, target.neckRot[1], alphaBody);
+  rig.neck.rotation.z = lerp(rig.neck.rotation.z, target.neckRot[2], alphaBody);
 
-  rig.clavicleL.rotation.x = lerp(rig.clavicleL.rotation.x, target.clavicleL[0], alphaLimbs);
-  rig.clavicleL.rotation.y = lerp(rig.clavicleL.rotation.y, target.clavicleL[1], alphaLimbs);
-  rig.clavicleL.rotation.z = lerp(rig.clavicleL.rotation.z, target.clavicleL[2], alphaLimbs);
+  rig.head.rotation.x = lerp(rig.head.rotation.x, target.headRot[0], alphaBody);
+  rig.head.rotation.y = lerp(rig.head.rotation.y, target.headRot[1], alphaBody);
+  rig.head.rotation.z = lerp(rig.head.rotation.z, target.headRot[2], alphaBody);
 
-  rig.upperArmL.rotation.x = lerp(rig.upperArmL.rotation.x, target.armL[0], alphaLimbs);
-  rig.upperArmL.rotation.y = lerp(rig.upperArmL.rotation.y, target.armL[1], alphaLimbs);
-  rig.upperArmL.rotation.z = lerp(rig.upperArmL.rotation.z, target.armL[2], alphaLimbs);
+  rig.clavicleL.rotation.set(
+    lerp(rig.clavicleL.rotation.x, target.clavicleL[0], alphaLimbs),
+    lerp(rig.clavicleL.rotation.y, target.clavicleL[1], alphaLimbs),
+    lerp(rig.clavicleL.rotation.z, target.clavicleL[2], alphaLimbs),
+  );
+  rig.shoulderPivotL.rotation.set(
+    lerp(rig.shoulderPivotL.rotation.x, target.shoulderL[0], alphaLimbs),
+    lerp(rig.shoulderPivotL.rotation.y, target.shoulderL[1], alphaLimbs),
+    lerp(rig.shoulderPivotL.rotation.z, target.shoulderL[2], alphaLimbs),
+  );
+  rig.elbowPivotL.rotation.set(
+    lerp(rig.elbowPivotL.rotation.x, target.elbowL[0], alphaLimbs),
+    lerp(rig.elbowPivotL.rotation.y, target.elbowL[1], alphaLimbs),
+    lerp(rig.elbowPivotL.rotation.z, target.elbowL[2], alphaLimbs),
+  );
+  rig.fistL.rotation.set(
+    lerp(rig.fistL.rotation.x, target.fistL[0], alphaLimbs),
+    lerp(rig.fistL.rotation.y, target.fistL[1], alphaLimbs),
+    lerp(rig.fistL.rotation.z, target.fistL[2], alphaLimbs),
+  );
 
-  rig.forearmL.rotation.x = lerp(rig.forearmL.rotation.x, target.forearmL[0], alphaLimbs);
-  rig.forearmL.rotation.y = lerp(rig.forearmL.rotation.y, target.forearmL[1], alphaLimbs);
-  rig.forearmL.rotation.z = lerp(rig.forearmL.rotation.z, target.forearmL[2], alphaLimbs);
+  rig.clavicleR.rotation.set(
+    lerp(rig.clavicleR.rotation.x, target.clavicleR[0], alphaLimbs),
+    lerp(rig.clavicleR.rotation.y, target.clavicleR[1], alphaLimbs),
+    lerp(rig.clavicleR.rotation.z, target.clavicleR[2], alphaLimbs),
+  );
+  rig.shoulderPivotR.rotation.set(
+    lerp(rig.shoulderPivotR.rotation.x, target.shoulderR[0], alphaLimbs),
+    lerp(rig.shoulderPivotR.rotation.y, target.shoulderR[1], alphaLimbs),
+    lerp(rig.shoulderPivotR.rotation.z, target.shoulderR[2], alphaLimbs),
+  );
+  rig.elbowPivotR.rotation.set(
+    lerp(rig.elbowPivotR.rotation.x, target.elbowR[0], alphaLimbs),
+    lerp(rig.elbowPivotR.rotation.y, target.elbowR[1], alphaLimbs),
+    lerp(rig.elbowPivotR.rotation.z, target.elbowR[2], alphaLimbs),
+  );
+  rig.fistR.rotation.set(
+    lerp(rig.fistR.rotation.x, target.fistR[0], alphaLimbs),
+    lerp(rig.fistR.rotation.y, target.fistR[1], alphaLimbs),
+    lerp(rig.fistR.rotation.z, target.fistR[2], alphaLimbs),
+  );
 
-  rig.clavicleR.rotation.x = lerp(rig.clavicleR.rotation.x, target.clavicleR[0], alphaLimbs);
-  rig.clavicleR.rotation.y = lerp(rig.clavicleR.rotation.y, target.clavicleR[1], alphaLimbs);
-  rig.clavicleR.rotation.z = lerp(rig.clavicleR.rotation.z, target.clavicleR[2], alphaLimbs);
+  rig.hipPivotL.rotation.set(
+    lerp(rig.hipPivotL.rotation.x, target.hipL[0], alphaLimbs),
+    lerp(rig.hipPivotL.rotation.y, target.hipL[1], alphaLimbs),
+    lerp(rig.hipPivotL.rotation.z, target.hipL[2], alphaLimbs),
+  );
+  rig.kneePivotL.rotation.set(
+    lerp(rig.kneePivotL.rotation.x, target.kneeL[0], alphaLimbs),
+    lerp(rig.kneePivotL.rotation.y, target.kneeL[1], alphaLimbs),
+    lerp(rig.kneePivotL.rotation.z, target.kneeL[2], alphaLimbs),
+  );
+  rig.anklePivotL.rotation.set(
+    lerp(rig.anklePivotL.rotation.x, target.ankleL[0], alphaLimbs),
+    lerp(rig.anklePivotL.rotation.y, target.ankleL[1], alphaLimbs),
+    lerp(rig.anklePivotL.rotation.z, target.ankleL[2], alphaLimbs),
+  );
 
-  rig.upperArmR.rotation.x = lerp(rig.upperArmR.rotation.x, target.armR[0], alphaLimbs);
-  rig.upperArmR.rotation.y = lerp(rig.upperArmR.rotation.y, target.armR[1], alphaLimbs);
-  rig.upperArmR.rotation.z = lerp(rig.upperArmR.rotation.z, target.armR[2], alphaLimbs);
-
-  rig.forearmR.rotation.x = lerp(rig.forearmR.rotation.x, target.forearmR[0], alphaLimbs);
-  rig.forearmR.rotation.y = lerp(rig.forearmR.rotation.y, target.forearmR[1], alphaLimbs);
-  rig.forearmR.rotation.z = lerp(rig.forearmR.rotation.z, target.forearmR[2], alphaLimbs);
-
-  rig.thighL.rotation.x = lerp(rig.thighL.rotation.x, target.thighL[0], alphaLimbs);
-  rig.thighL.rotation.y = lerp(rig.thighL.rotation.y, target.thighL[1], alphaLimbs);
-  rig.thighL.rotation.z = lerp(rig.thighL.rotation.z, target.thighL[2], alphaLimbs);
-  rig.shinL.rotation.x = lerp(rig.shinL.rotation.x, target.shinL[0], alphaLimbs);
-  rig.footL.rotation.x = lerp(rig.footL.rotation.x, target.footL[0], alphaLimbs);
-  rig.footL.rotation.y = lerp(rig.footL.rotation.y, target.footL[1], alphaLimbs);
-  rig.footL.rotation.z = lerp(rig.footL.rotation.z, target.footL[2], alphaLimbs);
-
-  rig.thighR.rotation.x = lerp(rig.thighR.rotation.x, target.thighR[0], alphaLimbs);
-  rig.thighR.rotation.y = lerp(rig.thighR.rotation.y, target.thighR[1], alphaLimbs);
-  rig.thighR.rotation.z = lerp(rig.thighR.rotation.z, target.thighR[2], alphaLimbs);
-  rig.shinR.rotation.x = lerp(rig.shinR.rotation.x, target.shinR[0], alphaLimbs);
-  rig.footR.rotation.x = lerp(rig.footR.rotation.x, target.footR[0], alphaLimbs);
-  rig.footR.rotation.y = lerp(rig.footR.rotation.y, target.footR[1], alphaLimbs);
-  rig.footR.rotation.z = lerp(rig.footR.rotation.z, target.footR[2], alphaLimbs);
+  rig.hipPivotR.rotation.set(
+    lerp(rig.hipPivotR.rotation.x, target.hipR[0], alphaLimbs),
+    lerp(rig.hipPivotR.rotation.y, target.hipR[1], alphaLimbs),
+    lerp(rig.hipPivotR.rotation.z, target.hipR[2], alphaLimbs),
+  );
+  rig.kneePivotR.rotation.set(
+    lerp(rig.kneePivotR.rotation.x, target.kneeR[0], alphaLimbs),
+    lerp(rig.kneePivotR.rotation.y, target.kneeR[1], alphaLimbs),
+    lerp(rig.kneePivotR.rotation.z, target.kneeR[2], alphaLimbs),
+  );
+  rig.anklePivotR.rotation.set(
+    lerp(rig.anklePivotR.rotation.x, target.ankleR[0], alphaLimbs),
+    lerp(rig.anklePivotR.rotation.y, target.ankleR[1], alphaLimbs),
+    lerp(rig.anklePivotR.rotation.z, target.ankleR[2], alphaLimbs),
+  );
 }
 
 export function applyMainMenuHeroPose(
@@ -2053,23 +2117,20 @@ export function applyMainMenuHeroPose(
   timeSec: number,
   dt: number,
 ) {
-  // Cinematic close-up bust pose matching image_c94e6796.png
+  // Cinematic close-up bust pose matching hero lighting stage
   rig.root.position.set(0.36, 0, 0.22);
   rig.root.rotation.y = -0.34;
 
   const breath = Math.sin(timeSec * 1.65) * 0.011;
   const pose = createZeroPose();
   pose.pelvisY = 0.94 + breath * 0.2;
-  pose.chestRotX = -0.04 + breath;
-  pose.chestRotY = 0.06;
-  pose.headRotX = -0.14; // proud slight chin-up gaze
-  pose.headRotY = 0.22 + Math.sin(timeSec * 0.65) * 0.035;
-  pose.headRotZ = -0.025;
+  pose.chestRot = [-0.04 + breath, 0.06, 0];
+  pose.headRot = [-0.14, 0.22 + Math.sin(timeSec * 0.65) * 0.035, -0.025];
 
-  pose.armL = [-0.1, 0.06, -0.13];
-  pose.forearmL = [-0.28, 0.1, 0.06];
-  pose.armR = [-0.1, -0.06, 0.13];
-  pose.forearmR = [-0.28, -0.1, -0.06];
+  pose.shoulderL = [-0.1, 0.06, -0.13];
+  pose.elbowL = [-0.28, 0.1, 0.06];
+  pose.shoulderR = [-0.1, -0.06, 0.13];
+  pose.elbowR = [-0.28, -0.1, -0.06];
 
   const alpha = 1 - Math.exp(-8 * Math.min(dt, 0.05));
   interpolatePose(rig, pose, alpha, alpha);
@@ -2091,18 +2152,17 @@ export function applySelectShowcasePose(
   const breath = Math.sin(timeSec * 2.2 + (isRed ? 0 : 1.1)) * 0.015;
   const pose = createZeroPose();
   pose.pelvisY = 0.94 + breath * 0.3;
-  pose.chestRotX = -0.04 + breath;
-  pose.headRotX = -0.04;
-  pose.headRotY = isRed ? -0.1 : 0.1;
+  pose.chestRot = [-0.04 + breath, 0, 0];
+  pose.headRot = [-0.04, isRed ? -0.1 : 0.1, 0];
 
-  pose.armL = [-0.22, 0.12, -0.2];
-  pose.forearmL = [-0.6, 0.16, 0.1];
-  pose.armR = [-0.22, -0.12, 0.2];
-  pose.forearmR = [-0.6, -0.16, -0.1];
-  pose.thighL = [-0.04, 0.08, -0.09];
-  pose.thighR = [-0.04, -0.08, 0.09];
-  pose.shinL = [0.06, 0, 0];
-  pose.shinR = [0.06, 0, 0];
+  pose.shoulderL = [-0.22, 0.12, -0.2];
+  pose.elbowL = [-0.6, 0.16, 0.1];
+  pose.shoulderR = [-0.22, -0.12, 0.2];
+  pose.elbowR = [-0.6, -0.16, -0.1];
+  pose.hipL = [-0.04, 0.08, -0.09];
+  pose.hipR = [-0.04, -0.08, 0.09];
+  pose.kneeL = [0.06, 0, 0];
+  pose.kneeR = [0.06, 0, 0];
 
   const alpha = 1 - Math.exp(-10 * Math.min(dt, 0.05));
   interpolatePose(rig, pose, alpha, alpha);
@@ -2122,71 +2182,68 @@ export function applyFighterPose(
   rig.root.rotation.y = state.facingYaw;
 
   const speed = Math.hypot(state.vx, state.vz);
-  const base = getStanceGuardPose(state.stance, state.gaitPhase, speed, timeSec);
+  const staminaRatio = state.stamina / Math.max(1, state.maxStamina);
+  const base = getIdleGuardPose(state.stance, state.gaitPhase, speed, timeSec, staminaRatio);
   let target: PoseAngles = base;
 
   if (isKoWinner && state.action !== 'ko') {
-    // Walk-off / Raised-Arms Victory Celebration after scoring a knockout
     const celeb = Math.sin(timeSec * 4.2) * 0.04;
-    target = { ...base };
+    target = clonePose(base);
     target.pelvisY = 0.955 + Math.abs(celeb) * 0.25;
-    target.chestRotX = -0.14;
-    target.chestRotY = 0.14;
-    target.headRotX = -0.22;
-    target.headRotY = Math.sin(timeSec * 1.4) * 0.12;
+    target.chestRot = [-0.14, 0.14, 0];
+    target.headRot = [-0.22, Math.sin(timeSec * 1.4) * 0.12, 0];
     target.clavicleL = [-0.24, 0, -0.25];
     target.clavicleR = [-0.24, 0, 0.25];
-    target.armL = [-2.55 + celeb, 0.22, -0.46];
-    target.forearmL = [-0.42, 0.1, 0.14];
-    target.armR = [-2.68 - celeb, -0.2, 0.42];
-    target.forearmR = [-0.36, -0.1, -0.14];
-    target.thighL = [-0.08, 0.12, -0.12];
-    target.thighR = [0.06, -0.1, 0.12];
-    target.shinL = [0.12, 0, 0];
-    target.shinR = [0.08, 0, 0];
+    target.shoulderL = [-2.55 + celeb, 0.22, -0.46];
+    target.elbowL = [-0.42, 0.1, 0.14];
+    target.shoulderR = [-2.68 - celeb, -0.2, 0.42];
+    target.elbowR = [-0.36, -0.1, -0.14];
+    target.hipL = [-0.08, 0.12, -0.12];
+    target.hipR = [0.06, -0.1, 0.12];
+    target.kneeL = [0.12, 0, 0];
+    target.kneeR = [0.08, 0, 0];
   } else if (state.action === 'strike' && state.currentStrike) {
     const progress = Math.min(
       1,
       state.actionTime / Math.max(0.01, state.actionDuration),
     );
-    target = getStrikePose(state.currentStrike, state.stance, progress, base);
+    target = getStrikeKeyframePose(state.currentStrike, state.stance, progress, base);
   } else if (state.action === 'slipLeft' || state.action === 'slipRight') {
     const p = Math.sin(
       Math.min(1, state.actionTime / Math.max(0.01, state.actionDuration)) *
         Math.PI,
     );
     const dir = state.action === 'slipLeft' ? -1 : 1;
-    target = { ...base };
+    target = clonePose(base);
     target.pelvisY = base.pelvisY - 0.09 * p;
-    target.abdomenRotZ = dir * 0.4 * p;
-    target.chestRotZ = dir * 0.28 * p;
-    target.abdomenRotX = 0.24 * p;
-    target.headRotZ = -dir * 0.24 * p;
+    target.abdomenRot = [0.24 * p, base.abdomenRot[1], dir * 0.42 * p];
+    target.chestRot = [base.chestRot[0], base.chestRot[1], dir * 0.28 * p];
+    target.headRot = [base.headRot[0], base.headRot[1], -dir * 0.24 * p];
   } else if (state.action === 'pullBack') {
     const p = Math.sin(
       Math.min(1, state.actionTime / Math.max(0.01, state.actionDuration)) *
         Math.PI,
     );
-    target = { ...base };
-    target.abdomenRotX = -0.36 * p;
-    target.chestRotX = -0.3 * p;
-    target.headRotX = 0.24 * p;
+    target = clonePose(base);
+    target.abdomenRot = [-0.36 * p, base.abdomenRot[1], 0];
+    target.chestRot = [-0.3 * p, base.chestRot[1], 0];
+    target.headRot = [0.24 * p, base.headRot[1], 0];
   } else if (state.action === 'duck') {
     const p = Math.sin(
       Math.min(1, state.actionTime / Math.max(0.01, state.actionDuration)) *
         Math.PI,
     );
-    target = { ...base };
+    target = clonePose(base);
     target.pelvisY = base.pelvisY - 0.19 * p;
-    target.abdomenRotX = 0.56 * p;
-    target.chestRotX = 0.42 * p;
-    target.headRotX = -0.25 * p;
-    target.thighL = [-0.62 * p + base.thighL[0], base.thighL[1], base.thighL[2]];
-    target.shinL = [0.76 * p + base.shinL[0], 0, 0];
-    target.thighR = [-0.45 * p + base.thighR[0], base.thighR[1], base.thighR[2]];
-    target.shinR = [0.68 * p + base.shinR[0], 0, 0];
-    target.armL = [-1.2, 0.24, -0.1];
-    target.armR = [-1.2, -0.24, 0.1];
+    target.abdomenRot = [0.56 * p, base.abdomenRot[1], 0];
+    target.chestRot = [0.42 * p, base.chestRot[1], 0];
+    target.headRot = [-0.25 * p, base.headRot[1], 0];
+    target.hipL = [-0.62 * p + base.hipL[0], base.hipL[1], base.hipL[2]];
+    target.kneeL = [0.76 * p + base.kneeL[0], 0, 0];
+    target.hipR = [-0.45 * p + base.hipR[0], base.hipR[1], base.hipR[2]];
+    target.kneeR = [0.68 * p + base.kneeR[0], 0, 0];
+    target.shoulderL = [-1.2, 0.24, -0.1];
+    target.shoulderR = [-1.2, -0.24, 0.1];
   } else if (state.action === 'hitReact') {
     const p = Math.sin(
       Math.min(1, state.actionTime / Math.max(0.01, state.actionDuration)) *
@@ -2194,190 +2251,70 @@ export function applyFighterPose(
     );
     const k = state.hitReactIntensity * p;
     const hitDir = state.hitReactSide === 0 ? 1 : state.hitReactSide;
-    target = { ...base };
+    target = clonePose(base);
     if (state.hitReactZone === 'head') {
-      target.abdomenRotX = -0.14 * k;
-      target.chestRotX = -0.34 * k;
-      target.chestRotY = base.chestRotY + 0.22 * hitDir * k;
-      target.headRotX = -0.72 * k;
-      target.headRotY = base.headRotY + 0.44 * hitDir * k;
-      target.headRotZ = -0.26 * hitDir * k;
-      target.armL = [-0.52, -0.24, -0.38];
-      target.armR = [-0.52, 0.24, 0.38];
+      target.abdomenRot = [-0.14 * k, base.abdomenRot[1], 0];
+      target.chestRot = [-0.34 * k, base.chestRot[1] + 0.22 * hitDir * k, 0];
+      target.headRot = [-0.72 * k, base.headRot[1] + 0.44 * hitDir * k, -0.26 * hitDir * k];
+      target.shoulderL = [-0.52, -0.24, -0.38];
+      target.shoulderR = [-0.52, 0.24, 0.38];
     } else if (state.hitReactZone === 'body') {
-      target.abdomenRotX = 0.54 * k;
-      target.chestRotX = 0.44 * k;
-      target.chestRotZ = 0.16 * hitDir * k;
+      target.abdomenRot = [0.54 * k, base.abdomenRot[1], 0];
+      target.chestRot = [0.44 * k, base.chestRot[1], 0.16 * hitDir * k];
       target.pelvisY = base.pelvisY - 0.12 * k;
-      target.armL = [-0.7, 0.18, -0.25];
-      target.armR = [-0.7, -0.18, 0.25];
+      target.shoulderL = [-0.7, 0.18, -0.25];
+      target.shoulderR = [-0.7, -0.18, 0.25];
     } else {
       target.pelvisY = base.pelvisY - 0.13 * k;
-      target.pelvisRotZ = 0.28 * hitDir * k;
-      target.thighL = [-0.62 * k, 0.12, -0.14];
-      target.shinL = [0.74 * k, 0, 0];
+      target.pelvisRot = [base.pelvisRot[0], base.pelvisRot[1], 0.28 * hitDir * k];
+      target.hipL = [-0.62 * k, 0.12, -0.14];
+      target.kneeL = [0.74 * k, 0, 0];
     }
   } else if (state.action === 'stunned') {
     const wobble = Math.sin(timeSec * 10.5);
     const kneeBuckle = Math.max(0, Math.sin(timeSec * 7.2));
-    target = { ...base };
-    target.pelvisY = base.pelvisY - 0.12 - kneeBuckle * 0.05;
-    target.pelvisRotZ = wobble * 0.16;
-    target.abdomenRotZ = wobble * 0.28;
-    target.chestRotZ = wobble * 0.32;
-    target.chestRotX = -0.16;
-    target.headRotX = -0.28;
-    target.headRotZ = -wobble * 0.22;
-    target.thighL = [base.thighL[0] - kneeBuckle * 0.28, base.thighL[1], -0.12];
-    target.shinL = [base.shinL[0] + kneeBuckle * 0.38, 0, 0];
-    target.thighR = [base.thighR[0] - (1 - kneeBuckle) * 0.22, base.thighR[1], 0.12];
-    target.shinR = [base.shinR[0] + (1 - kneeBuckle) * 0.3, 0, 0];
-    target.armL = [-0.42, -0.18, -0.48 + wobble * 0.12];
-    target.forearmL = [-0.85, 0, 0.1];
-    target.armR = [-0.42, 0.18, 0.48 + wobble * 0.12];
-    target.forearmR = [-0.85, 0, -0.1];
-  } else if (state.action === 'knockdown') {
-    const kneeCollapse = smoothstep(0, 0.22, state.actionTime);
-    const fall = smoothstep(0.08, 0.54, state.actionTime);
-    const recover =
-      state.actionTime > 0.88
-        ? smoothstep(0.88, state.actionDuration, state.actionTime)
-        : 0;
-    const f = fall * (1 - recover);
-    const kc = kneeCollapse * (1 - recover);
-    const side = state.hitReactSide || 1;
-    target = { ...base };
-    target.pelvisY = lerp(base.pelvisY - kc * 0.16, 0.16, f);
-    target.pelvisRotX = lerp(0, -Math.PI * 0.47, f);
-    target.pelvisRotZ = lerp(0, 0.2 * side, f);
-    target.chestRotX = lerp(base.chestRotX, -0.16, f);
-    target.headRotX = lerp(base.headRotX, 0.28, f);
-    target.headRotY = lerp(base.headRotY, 0.35 * side, f);
-    target.armL = [lerp(base.armL[0], -0.32, f), -0.44 * f, -0.92 * f];
-    target.armR = [lerp(base.armR[0], -0.26, f), 0.44 * f, 0.92 * f];
-    target.forearmL = [lerp(base.forearmL[0], -0.42, f), 0, 0];
-    target.forearmR = [lerp(base.forearmR[0], -0.42, f), 0, 0];
-    target.thighL = [lerp(base.thighL[0] - kc * 0.35, -0.16, f), 0, -0.18 * f];
-    target.thighR = [lerp(base.thighR[0] - kc * 0.25, 0.06, f), 0, 0.18 * f];
-    target.shinL = [lerp(base.shinL[0] + kc * 0.48, 0.26, f), 0, 0];
-    target.shinR = [lerp(base.shinR[0] + kc * 0.36, 0.14, f), 0, 0];
-  } else if (state.action === 'ko') {
-    const t = state.actionTime;
-    const side = state.hitReactSide === 0 ? 1 : state.hitReactSide;
-    const whiplash = Math.sin(clamp(t / 0.19, 0, 1) * Math.PI);
-    const kneeGive = smoothstep(0.02, 0.24, t);
-    const dropRaw = clamp((t - 0.1) / 0.42, 0, 1);
-    const gravityDrop = dropRaw * dropRaw * (2 - dropRaw * 0.85);
-    const drop = clamp(gravityDrop, 0, 1);
-    const bounce =
-      t > 0.48 && t < 0.84
-        ? Math.sin(((t - 0.48) / 0.36) * Math.PI) * 0.055 * (1 - (t - 0.48) / 0.36)
-        : 0;
-    const settle = smoothstep(0.5, 0.86, t);
-    const headSlamBounce =
-      t > 0.52 && t < 0.88
-        ? Math.sin(((t - 0.52) / 0.36) * Math.PI) * 0.26
-        : 0;
-
-    target = { ...base };
-    if (state.koStyle === 'crumple') {
-      // Devastating fold-under crumple KO (knees buckle forward first, torso folds onto mat)
-      const crumpleDrop = smoothstep(0.08, 0.55, t);
-      target.pelvisY = lerp(base.pelvisY - kneeGive * 0.32, 0.15, crumpleDrop) + bounce * 0.7;
-      target.pelvisRotX = lerp(0, -Math.PI * 0.42, crumpleDrop);
-      target.pelvisRotZ = lerp(0, 0.42 * side, crumpleDrop);
-      target.abdomenRotX = lerp(base.abdomenRotX, 0.45 * (1 - settle * 0.5), crumpleDrop);
-      target.chestRotX = lerp(base.chestRotX, 0.25 * (1 - settle * 0.6), crumpleDrop);
-      target.chestRotZ = 0.28 * side * crumpleDrop;
-      target.headRotX = -0.65 * whiplash + lerp(0, 0.44, settle) - headSlamBounce;
-      target.headRotY = 0.52 * side * drop;
-      target.headRotZ = -0.35 * side * settle;
-      target.thighL = [-1.15 * kneeGive * (1 - settle * 0.55), -0.18 * side, -0.28 * settle];
-      target.shinL = [1.85 * kneeGive * (1 - settle * 0.65), 0, 0];
-      target.thighR = [-0.95 * kneeGive * (1 - settle * 0.5), 0.16 * side, 0.26 * settle];
-      target.shinR = [1.55 * kneeGive * (1 - settle * 0.55), 0, 0];
-      target.armL = [lerp(-0.1, 0.18, settle), -0.38 * drop, -0.78 * drop];
-      target.armR = [lerp(-0.15, -0.34, settle), 0.48 * drop, 1.05 * drop];
-      target.forearmL = [-0.35 - 0.3 * bounce, 0.15, 0];
-      target.forearmR = [-0.25 - 0.25 * bounce, -0.15, 0];
-    } else if (state.koStyle === 'twisted') {
-      // Corkscrew hook / head kick KO: violent head snap & twisted flat sprawl
-      target.pelvisY = lerp(base.pelvisY - kneeGive * 0.12, 0.145, drop) + bounce;
-      target.pelvisRotX = lerp(0, -Math.PI * 0.48, drop);
-      target.pelvisRotY = lerp(0, 0.48 * side, drop);
-      target.pelvisRotZ = lerp(0, 0.36 * side, drop);
-      target.abdomenRotY = lerp(0, 0.22 * side, drop);
-      target.chestRotX = lerp(-0.32 * whiplash, -0.12, drop);
-      target.chestRotY = 0.35 * side * whiplash;
-      target.headRotX = -0.92 * whiplash - headSlamBounce + 0.18 * settle;
-      target.headRotY = 0.68 * side * clamp(whiplash + settle * 0.85, 0, 1);
-      target.headRotZ = -0.4 * side * drop;
-      // Fencing / flail arm reflex mid-fall turning into asymmetric unconscious sprawl
-      target.armL = [
-        lerp(-0.85 * whiplash, -0.12, settle),
-        lerp(-0.4, -0.58, settle),
-        lerp(-1.25 * drop, -1.12, settle),
-      ];
-      target.armR = [
-        lerp(-1.05 * whiplash, -0.38, settle),
-        lerp(0.35, 0.62, settle),
-        lerp(1.18 * drop, 0.94, settle),
-      ];
-      target.forearmL = [lerp(-0.18, -0.45, settle) - bounce * 2.5, 0, 0.15];
-      target.forearmR = [lerp(-0.55, -0.18, settle) - bounce * 2.2, 0, -0.15];
-      target.thighL = [lerp(-0.32 * kneeGive, -0.24, settle), -0.14 * settle, -0.26 * settle];
-      target.thighR = [lerp(-0.15 * kneeGive, 0.12, settle), 0.16 * settle, 0.14 * settle];
-      target.shinL = [lerp(0.55 * kneeGive, 0.48, settle), 0, 0];
-      target.shinR = [lerp(0.28 * kneeGive, 0.16, settle), 0, 0];
+    if (state.guard === 'high' || state.guard === 'low') {
+      target = getBlockPose(state.guard, state.stance, base, timeSec);
+      target.pelvisY -= 0.08 + kneeBuckle * 0.04;
+      target.pelvisRot = [target.pelvisRot[0], target.pelvisRot[1], wobble * 0.11];
+      target.abdomenRot = [target.abdomenRot[0], target.abdomenRot[1], wobble * 0.16];
+      target.chestRot = [target.chestRot[0], target.chestRot[1], wobble * 0.18];
+      target.hipL = [target.hipL[0] - kneeBuckle * 0.2, target.hipL[1], target.hipL[2]];
+      target.kneeL = [target.kneeL[0] + kneeBuckle * 0.28, 0, 0];
+      target.hipR = [target.hipR[0] - (1 - kneeBuckle) * 0.16, target.hipR[1], target.hipR[2]];
+      target.kneeR = [target.kneeR[0] + (1 - kneeBuckle) * 0.22, 0, 0];
     } else {
-      // Classic clean straight/kick "Timber" backward knockout with mat head-bounce
-      target.pelvisY = lerp(base.pelvisY - kneeGive * 0.14, 0.145, drop) + bounce;
-      target.pelvisRotX = lerp(0, -Math.PI * 0.49, drop);
-      target.pelvisRotZ = lerp(0, 0.16 * side, drop);
-      target.chestRotX = lerp(-0.38 * whiplash, -0.1, drop);
-      target.headRotX = -0.88 * whiplash - headSlamBounce + 0.16 * settle;
-      target.headRotY = 0.46 * side * settle;
-      target.headRotZ = -0.24 * side * settle;
-      target.armL = [
-        lerp(-0.45 * whiplash, -0.22, settle),
-        -0.55 * drop,
-        lerp(-0.95, -1.16, settle) * drop,
-      ];
-      target.armR = [
-        lerp(-0.92 * whiplash, -0.08, settle),
-        0.5 * drop,
-        lerp(1.05, 0.88, settle) * drop,
-      ];
-      target.forearmL = [-0.28 - bounce * 2.4, 0, 0];
-      target.forearmR = [-0.52 - bounce * 2.2, 0, 0];
-      target.thighL = [lerp(-0.28 * kneeGive, -0.22, settle), 0, -0.22 * drop];
-      target.thighR = [lerp(-0.14 * kneeGive, 0.08, settle), 0, 0.16 * drop];
-      target.shinL = [lerp(0.48 * kneeGive, 0.36, settle), 0, 0];
-      target.shinR = [lerp(0.24 * kneeGive, 0.14, settle), 0, 0];
+      target = clonePose(base);
+      target.pelvisY = base.pelvisY - 0.12 - kneeBuckle * 0.05;
+      target.pelvisRot = [base.pelvisRot[0], base.pelvisRot[1], wobble * 0.16];
+      target.abdomenRot = [base.abdomenRot[0], base.abdomenRot[1], wobble * 0.28];
+      target.chestRot = [-0.16, base.chestRot[1], wobble * 0.32];
+      target.headRot = [-0.28, base.headRot[1], -wobble * 0.22];
+      target.hipL = [base.hipL[0] - kneeBuckle * 0.28, base.hipL[1], -0.12];
+      target.kneeL = [base.kneeL[0] + kneeBuckle * 0.38, 0, 0];
+      target.hipR = [base.hipR[0] - (1 - kneeBuckle) * 0.22, base.hipR[1], 0.12];
+      target.kneeR = [base.kneeR[0] + (1 - kneeBuckle) * 0.3, 0, 0];
+      target.shoulderL = [-0.42, -0.18, -0.48 + wobble * 0.12];
+      target.elbowL = [-0.85, 0, 0.1];
+      target.shoulderR = [-0.42, 0.18, 0.48 + wobble * 0.12];
+      target.elbowR = [-0.85, 0, -0.1];
     }
-  } else if (state.guard === 'high') {
-    target = { ...base };
-    target.armL = [-1.22, 0.28, -0.05];
-    target.forearmL = [-2.05, 0, 0.12];
-    target.armR = [-1.22, -0.28, 0.05];
-    target.forearmR = [-2.05, 0, -0.12];
-    target.abdomenRotX = 0.18;
-    target.headRotX = 0.15;
-  } else if (state.guard === 'low') {
-    target = { ...base };
-    target.pelvisY = base.pelvisY - 0.06;
-    target.armL = [-0.62, 0.22, -0.12];
-    target.forearmL = [-1.45, 0.2, 0.1];
-    target.armR = [-0.62, -0.22, 0.12];
-    target.forearmR = [-1.45, 0.2, -0.1];
-    target.abdomenRotX = 0.24;
+  } else if (state.action === 'knockdown') {
+    target = getKnockdownPose(state, base);
+  } else if (state.action === 'ko') {
+    target = getKnockoutPose(state, base);
+  } else if (state.guard === 'high' || state.guard === 'low') {
+    target = getBlockPose(state.guard, state.stance, base, timeSec);
   }
 
   const limbRate =
     state.action === 'strike' || state.action === 'hitReact' || state.action === 'ko'
-      ? 36
-      : 18;
-  const bodyRate = state.action === 'strike' || state.action === 'ko' ? 24 : 14;
+      ? 38
+      : 20;
+  const bodyRate =
+    state.action === 'strike' || state.action === 'ko' || state.action === 'knockdown'
+      ? 26
+      : 15;
   const alphaBody = 1 - Math.exp(-bodyRate * Math.min(dt, 0.05));
   const alphaLimbs = 1 - Math.exp(-limbRate * Math.min(dt, 0.05));
   interpolatePose(rig, target, alphaBody, alphaLimbs);

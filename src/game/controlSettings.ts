@@ -21,6 +21,25 @@ export type JoystickMode = 'fixed' | 'floating';
 export type StickLungeMode = 'flick' | 'doubleTap' | 'off';
 export type ModifierBehavior = 'toggle' | 'hold';
 
+export type TouchControlId =
+  | 'stick'
+  | 'heavy'
+  | 'punch'
+  | 'kick'
+  | 'block'
+  | 'body'
+  | 'evade'
+  | 'leadPunch'
+  | 'rearPunch'
+  | 'leadKick'
+  | 'rearKick'
+  | 'hook';
+
+export interface TouchControlPosition {
+  x: number; // Normalized viewport horizontal center (0.06 .. 0.94)
+  y: number; // Normalized viewport vertical center (0.14 .. 0.92)
+}
+
 export interface TouchControlSettings {
   preset: TouchLayoutPreset;
   handedness: 'standard' | 'leftHanded';
@@ -36,6 +55,8 @@ export interface TouchControlSettings {
   stickLunge: boolean;
   modifierBehavior: ModifierBehavior;
   showLabels: boolean;
+  customPositions?: Partial<Record<TouchControlId, TouchControlPosition>>;
+  customScales?: Partial<Record<TouchControlId, number>>;
 }
 
 export interface GamepadControlSettings {
@@ -44,10 +65,130 @@ export interface GamepadControlSettings {
   invertY: boolean;
 }
 
+export type CameraPreset =
+  | 'default'
+  | 'wide'
+  | 'close'
+  | 'firstPerson'
+  | 'thirdPerson'
+  | 'topToSide';
+
+export const CAMERA_PRESET_OPTIONS: Array<{
+  id: CameraPreset;
+  label: string;
+  shortLabel: string;
+}> = [
+  { id: 'default', label: 'DEFAULT', shortLabel: 'Default' },
+  { id: 'wide', label: 'WIDE', shortLabel: 'Wide' },
+  { id: 'close', label: 'CLOSE', shortLabel: 'Close' },
+  { id: 'firstPerson', label: 'FIRST PERSON', shortLabel: '1st Person' },
+  { id: 'thirdPerson', label: 'THIRD PERSON', shortLabel: '3rd Person' },
+  { id: 'topToSide', label: 'TOP TO SIDE', shortLabel: 'Top-Side' },
+];
+
 export interface ControlSettings {
+  cameraPreset: CameraPreset;
   keyboard: Record<KeyboardAction, string>;
   touch: TouchControlSettings;
   gamepad: GamepadControlSettings;
+}
+
+export const TOUCH_CONTROL_META: Record<
+  TouchControlId,
+  { label: string; shortLabel: string; accent: string }
+> = {
+  stick: { label: 'Move Stick', shortLabel: 'STICK', accent: '#ffffff' },
+  heavy: { label: 'Heavy Strike', shortLabel: 'HEAVY', accent: '#ff8e1c' },
+  punch: { label: 'Punch Combo', shortLabel: 'PUNCH', accent: '#ff5d47' },
+  kick: { label: 'Kick', shortLabel: 'KICK', accent: '#54a6ff' },
+  block: { label: 'Block / Feint', shortLabel: 'BLOCK', accent: '#4ba3ff' },
+  body: { label: 'Body Modifier', shortLabel: 'BODY', accent: '#ff8e1c' },
+  evade: { label: 'Head Slip / Duck', shortLabel: 'SLIP', accent: '#f4c038' },
+  leadPunch: { label: 'Lead Jab', shortLabel: 'JAB', accent: '#ff5d47' },
+  rearPunch: { label: 'Rear Cross', shortLabel: 'CROSS', accent: '#ff8e1c' },
+  leadKick: { label: 'Lead Kick', shortLabel: 'L.KICK', accent: '#54a6ff' },
+  rearKick: { label: 'Rear Kick', shortLabel: 'R.KICK', accent: '#54a6ff' },
+  hook: { label: 'Hook Modifier', shortLabel: 'HOOK', accent: '#ff5d47' },
+};
+
+export function getControlsForPreset(
+  preset: TouchLayoutPreset,
+): TouchControlId[] {
+  return preset === 'fourLimb'
+    ? [
+        'stick',
+        'leadPunch',
+        'rearPunch',
+        'leadKick',
+        'rearKick',
+        'block',
+        'hook',
+        'body',
+        'evade',
+      ]
+    : ['stick', 'heavy', 'punch', 'kick', 'block', 'body', 'evade'];
+}
+
+export function clampTouchPosition(
+  pos: TouchControlPosition,
+): TouchControlPosition {
+  return {
+    x: Math.max(0.06, Math.min(0.94, Number(pos.x.toFixed(4)))),
+    y: Math.max(0.16, Math.min(0.92, Number(pos.y.toFixed(4)))),
+  };
+}
+
+export function getDefaultTouchPositions(
+  preset: TouchLayoutPreset,
+  handedness: 'standard' | 'leftHanded',
+): Record<TouchControlId, TouchControlPosition> {
+  const mirrorX = (x: number) => (handedness === 'leftHanded' ? 1 - x : x);
+
+  const base: Record<TouchControlId, TouchControlPosition> =
+    preset === 'fourLimb'
+      ? {
+          stick: { x: 0.14, y: 0.74 },
+          leadPunch: { x: 0.81, y: 0.48 },
+          rearPunch: { x: 0.9, y: 0.54 },
+          leadKick: { x: 0.81, y: 0.82 },
+          rearKick: { x: 0.9, y: 0.74 },
+          block: { x: 0.71, y: 0.65 },
+          hook: { x: 0.72, y: 0.47 },
+          body: { x: 0.71, y: 0.84 },
+          evade: { x: 0.8, y: 0.65 },
+          heavy: { x: 0.88, y: 0.45 },
+          punch: { x: 0.9, y: 0.66 },
+          kick: { x: 0.8, y: 0.84 },
+        }
+      : {
+          stick: { x: 0.14, y: 0.74 },
+          heavy: { x: 0.88, y: 0.45 },
+          punch: { x: 0.9, y: 0.67 },
+          kick: { x: 0.8, y: 0.84 },
+          block: { x: 0.73, y: 0.63 },
+          body: { x: 0.71, y: 0.84 },
+          evade: { x: 0.78, y: 0.45 },
+          leadPunch: { x: 0.81, y: 0.48 },
+          rearPunch: { x: 0.9, y: 0.54 },
+          leadKick: { x: 0.81, y: 0.82 },
+          rearKick: { x: 0.9, y: 0.74 },
+          hook: { x: 0.72, y: 0.47 },
+        };
+
+  const out = {} as Record<TouchControlId, TouchControlPosition>;
+  (Object.keys(base) as TouchControlId[]).forEach((id) => {
+    out[id] = clampTouchPosition({
+      x: mirrorX(base[id].x),
+      y: base[id].y,
+    });
+  });
+  return out;
+}
+
+export function hasCustomTouchLayout(touch: TouchControlSettings): boolean {
+  return Boolean(
+    touch.customPositions && Object.keys(touch.customPositions).length > 0,
+  );
 }
 
 export const KEYBOARD_ACTION_LABELS: Array<{
@@ -74,6 +215,7 @@ export const KEYBOARD_ACTION_LABELS: Array<{
 ];
 
 export const DEFAULT_CONTROL_SETTINGS: ControlSettings = {
+  cameraPreset: 'default',
   keyboard: {
     moveForward: 'KeyD',
     moveBack: 'KeyA',
@@ -100,13 +242,15 @@ export const DEFAULT_CONTROL_SETTINGS: ControlSettings = {
     scale: 1,
     buttonSpacing: 1,
     opacity: 0.92,
-    edgeMargin: 16,
-    verticalOffset: 10,
+    edgeMargin: 14,
+    verticalOffset: 8,
     joystickDeadzone: 0.14,
     lungeMode: 'flick',
     stickLunge: true,
     modifierBehavior: 'toggle',
     showLabels: true,
+    customPositions: {},
+    customScales: {},
   },
   gamepad: {
     deadzone: 0.18,
@@ -119,10 +263,57 @@ const STORAGE_KEY = 'octagon_control_settings_v1';
 
 export function cloneDefaultControlSettings(): ControlSettings {
   return {
+    cameraPreset: DEFAULT_CONTROL_SETTINGS.cameraPreset,
     keyboard: { ...DEFAULT_CONTROL_SETTINGS.keyboard },
-    touch: { ...DEFAULT_CONTROL_SETTINGS.touch },
+    touch: {
+      ...DEFAULT_CONTROL_SETTINGS.touch,
+      customPositions: {},
+      customScales: {},
+    },
     gamepad: { ...DEFAULT_CONTROL_SETTINGS.gamepad },
   };
+}
+
+function sanitizeCustomPositions(
+  raw: unknown,
+): Partial<Record<TouchControlId, TouchControlPosition>> {
+  if (!raw || typeof raw !== 'object') return {};
+  const validIds = new Set<TouchControlId>(
+    Object.keys(TOUCH_CONTROL_META) as TouchControlId[],
+  );
+  const out: Partial<Record<TouchControlId, TouchControlPosition>> = {};
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!validIds.has(key as TouchControlId) || !val || typeof val !== 'object') {
+      continue;
+    }
+    const maybe = val as { x?: unknown; y?: unknown };
+    if (
+      typeof maybe.x === 'number' &&
+      Number.isFinite(maybe.x) &&
+      typeof maybe.y === 'number' &&
+      Number.isFinite(maybe.y)
+    ) {
+      out[key as TouchControlId] = clampTouchPosition({ x: maybe.x, y: maybe.y });
+    }
+  }
+  return out;
+}
+
+function sanitizeCustomScales(
+  raw: unknown,
+): Partial<Record<TouchControlId, number>> {
+  if (!raw || typeof raw !== 'object') return {};
+  const validIds = new Set<TouchControlId>(
+    Object.keys(TOUCH_CONTROL_META) as TouchControlId[],
+  );
+  const out: Partial<Record<TouchControlId, number>> = {};
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!validIds.has(key as TouchControlId)) continue;
+    if (typeof val === 'number' && Number.isFinite(val)) {
+      out[key as TouchControlId] = Math.max(0.75, Math.min(1.45, val));
+    }
+  }
+  return out;
 }
 
 export function loadControlSettings(): ControlSettings {
@@ -134,11 +325,21 @@ export function loadControlSettings(): ControlSettings {
     const mergedTouch: TouchControlSettings = {
       ...DEFAULT_CONTROL_SETTINGS.touch,
       ...(parsed.touch ?? {}),
+      customPositions: sanitizeCustomPositions(parsed.touch?.customPositions),
+      customScales: sanitizeCustomScales(parsed.touch?.customScales),
     };
     if (!parsed.touch?.lungeMode && parsed.touch?.stickLunge === false) {
       mergedTouch.lungeMode = 'off';
     }
+    const validCameras = new Set<CameraPreset>(
+      CAMERA_PRESET_OPTIONS.map((c) => c.id),
+    );
+    const cameraPreset: CameraPreset =
+      parsed.cameraPreset && validCameras.has(parsed.cameraPreset)
+        ? parsed.cameraPreset
+        : DEFAULT_CONTROL_SETTINGS.cameraPreset;
     return {
+      cameraPreset,
       keyboard: {
         ...DEFAULT_CONTROL_SETTINGS.keyboard,
         ...(parsed.keyboard ?? {}),

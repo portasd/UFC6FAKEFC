@@ -1,16 +1,39 @@
 import React, { useEffect, useState } from 'react';
-import { Gamepad2, Keyboard, RotateCcw, Skull, Smartphone, Trophy } from 'lucide-react';
+import {
+  Camera,
+  Gamepad2,
+  Keyboard,
+  Move,
+  RotateCcw,
+  Skull,
+  Smartphone,
+  Trophy,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { BoutState } from '../game/combatEngine';
 import {
+  CAMERA_PRESET_OPTIONS,
+  CameraPreset,
   ControlSettings,
   DEFAULT_CONTROL_SETTINGS,
   formatKeyCode,
+  hasCustomTouchLayout,
   KEYBOARD_ACTION_LABELS,
   KeyboardAction,
 } from '../game/controlSettings';
-import { getFighterPortraitUrl } from '../game/portraits';
+import {
+  getFighterFallbackPortraitUrl,
+  getFighterPortraitUrl,
+} from '../game/portraits';
 
 interface PauseModalProps {
+  cameraPreset: CameraPreset;
+  muted: boolean;
+  touchEnabled: boolean;
+  onSelectCameraPreset: (preset: CameraPreset) => void;
+  onToggleMute: () => void;
+  onToggleTouchEnabled: () => void;
   onResume: () => void;
   onRestart: () => void;
   onReturnTitle: () => void;
@@ -18,6 +41,12 @@ interface PauseModalProps {
 }
 
 export const PauseModal: React.FC<PauseModalProps> = ({
+  cameraPreset,
+  muted,
+  touchEnabled,
+  onSelectCameraPreset,
+  onToggleMute,
+  onToggleTouchEnabled,
   onResume,
   onRestart,
   onReturnTitle,
@@ -30,19 +59,71 @@ export const PauseModal: React.FC<PauseModalProps> = ({
       aria-label="Fight Paused"
       className="fixed inset-0 z-30 flex items-center justify-center bg-black/75 p-4"
     >
-      <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-[#111319] border border-white/20 border-t-2 border-t-[#d92626] p-6 shadow-2xl">
-        <h2 className="font-display font-extrabold text-3xl uppercase tracking-wide text-white mb-1">
+      <div className="w-full max-w-md max-h-[94vh] overflow-y-auto bg-[#111319] border border-white/20 border-t-2 border-t-[#d92626] p-6 short:p-4 shadow-2xl">
+        <h2 className="font-display font-extrabold text-3xl short:text-2xl uppercase tracking-wide text-white mb-1">
           Bout Paused
         </h2>
-        <p className="text-xs text-white/60 mb-6">
-          Press Esc or P to jump straight back into the Octagon.
+        <p className="text-xs text-white/60 mb-4 short:mb-2.5">
+          Press Esc or P to jump straight back into the arena.
         </p>
 
-        <div className="flex flex-col gap-2.5">
+        {/* Camera Angle Picker */}
+        <div className="mb-3.5 short:mb-2.5 bg-[#0b0d12] border border-white/15 p-2.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-white/75 mb-2">
+            <Camera className="w-3.5 h-3.5 text-[#ff8e1c]" aria-hidden="true" />
+            <span>Camera Angle</span>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {CAMERA_PRESET_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                aria-pressed={cameraPreset === opt.id}
+                onClick={() => onSelectCameraPreset(opt.id)}
+                className={`py-1.5 px-1 text-[11px] font-bold uppercase border cursor-pointer transition-colors ${
+                  cameraPreset === opt.id
+                    ? 'bg-[#ff8e1c] border-[#ff8e1c] text-[#090a0d]'
+                    : 'bg-[#161922] border-white/15 text-white/80 hover:text-white'
+                }`}
+              >
+                {opt.shortLabel}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Sound & Touch Quick Toggles */}
+        <div className="grid grid-cols-2 gap-2 mb-3.5 short:mb-2.5">
+          <button
+            type="button"
+            onClick={onToggleMute}
+            className="py-2 px-2.5 bg-[#161922] hover:bg-[#1f2330] border border-white/15 text-xs font-semibold text-white flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            {muted ? (
+              <VolumeX className="w-3.5 h-3.5 text-[#ff5d47]" aria-hidden="true" />
+            ) : (
+              <Volume2 className="w-3.5 h-3.5 text-[#10b981]" aria-hidden="true" />
+            )}
+            <span>{muted ? 'Sound Off' : 'Sound On'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onToggleTouchEnabled}
+            className="py-2 px-2.5 bg-[#161922] hover:bg-[#1f2330] border border-white/15 text-xs font-semibold text-white flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Smartphone
+              className={`w-3.5 h-3.5 ${touchEnabled ? 'text-[#ff8e1c]' : 'text-white/50'}`}
+              aria-hidden="true"
+            />
+            <span>{touchEnabled ? 'Touch On' : 'Touch Off'}</span>
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-2.5 short:grid short:grid-cols-2 short:gap-2">
           <button
             type="button"
             onClick={onResume}
-            className="w-full py-3 bg-[#d92626] hover:bg-[#ef3333] text-white font-display font-bold text-lg uppercase tracking-wider transition-colors cursor-pointer"
+            className="w-full py-3 short:py-2.5 bg-[#d92626] hover:bg-[#ef3333] text-white font-display font-bold text-lg uppercase tracking-wider transition-colors cursor-pointer"
           >
             Resume Fight
           </button>
@@ -51,7 +132,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
             onClick={onOpenControls}
             className="w-full py-2.5 bg-[#191c25] hover:bg-[#232734] border border-white/15 text-sm font-semibold text-white transition-colors cursor-pointer"
           >
-            Controls &amp; Controller Mapping
+            Controls &amp; HUD Layout
           </button>
           <button
             type="button"
@@ -108,11 +189,11 @@ export const ResultModal: React.FC<ResultModalProps> = ({
       <div
         className={`w-full max-w-2xl max-h-[94vh] overflow-y-auto bg-[#0e1017] border border-white/20 border-t-4 ${
           isPlayerWinner ? 'border-t-[#f4c038]' : 'border-t-[#d92626]'
-        } p-4 sm:p-6 shadow-2xl`}
+        } p-4 sm:p-6 short:p-3 shadow-2xl`}
       >
         {/* HERO WINNER / LOSER VERDICT BANNER */}
         <div
-          className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 mb-4 border ${
+          className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 short:py-2 mb-4 short:mb-2 border ${
             isPlayerWinner
               ? 'bg-gradient-to-r from-[#f4c038]/20 via-[#10b981]/15 to-transparent border-[#f4c038]/50'
               : 'bg-gradient-to-r from-[#d92626]/25 via-[#991b1b]/15 to-transparent border-[#d92626]/50'
@@ -126,12 +207,12 @@ export const ResultModal: React.FC<ResultModalProps> = ({
             >
               {isPlayerWinner ? 'VICTORY · YOU WIN' : 'DEFEAT · YOU LOSE'}
             </div>
-            <h2 className="font-display font-extrabold text-3xl sm:text-4xl uppercase text-white tracking-tight leading-none mt-0.5">
+            <h2 className="font-display font-extrabold text-3xl sm:text-4xl short:text-2xl uppercase text-white tracking-tight leading-none mt-0.5">
               {winner.profile.name} DEFEATS {loser.profile.name}
             </h2>
           </div>
           <div className="text-right shrink-0">
-            <div className="font-display font-extrabold text-2xl sm:text-3xl text-[#f4c038] leading-none">
+            <div className="font-display font-extrabold text-2xl sm:text-3xl short:text-xl text-[#f4c038] leading-none">
               {bout.koMethod ?? 'KO'}
             </div>
             <div className="text-xs font-mono-tabular text-white/75 mt-0.5">
@@ -141,7 +222,7 @@ export const ResultModal: React.FC<ResultModalProps> = ({
         </div>
 
         {/* CLEAR SIDE-BY-SIDE WINNER VS LOSER CARDS */}
-        <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 short:gap-2 mb-4 short:mb-2">
           {[
             { f: red, idx: 0 as const, corner: 'Red Corner · You', img: redPortrait },
             { f: blue, idx: 1 as const, corner: 'Blue Corner · CPU', img: bluePortrait },
@@ -151,17 +232,24 @@ export const ResultModal: React.FC<ResultModalProps> = ({
               <div
                 key={f.profile.id + idx}
                 data-outcome={isWin ? 'winner' : 'loser'}
-                className={`relative overflow-hidden border p-2.5 sm:p-3 flex items-center gap-3 ${
+                className={`relative overflow-hidden border p-2.5 sm:p-3 short:p-2 flex items-center gap-3 ${
                   isWin
                     ? 'bg-[#171c26] border-[#f4c038] shadow-[0_0_20px_rgba(244,192,56,0.18)]'
                     : 'bg-[#0b0c11] border-white/15 opacity-75'
                 }`}
               >
-                <div className="relative w-16 h-12 sm:w-20 sm:h-14 shrink-0 overflow-hidden border border-white/15 bg-black">
+                <div className="relative w-14 h-14 sm:w-16 sm:h-16 short:w-12 short:h-12 shrink-0 overflow-hidden border border-white/15 bg-black">
                   <img
                     src={img}
                     alt={f.profile.name}
-                    className={`w-full h-full object-cover ${isWin ? '' : 'grayscale contrast-75 brightness-75'}`}
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      if (!el.dataset.fallback) {
+                        el.dataset.fallback = '1';
+                        el.src = getFighterFallbackPortraitUrl(f.profile);
+                      }
+                    }}
+                    className={`w-full h-full object-cover object-center pixelated ${isWin ? '' : 'grayscale contrast-75 brightness-75'}`}
                   />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -178,7 +266,7 @@ export const ResultModal: React.FC<ResultModalProps> = ({
                       </span>
                     )}
                   </div>
-                  <div className="font-display font-extrabold text-lg sm:text-xl uppercase text-white leading-tight truncate">
+                  <div className="font-display font-extrabold text-lg sm:text-xl short:text-base uppercase text-white leading-tight truncate">
                     {f.profile.name}
                   </div>
                   <div
@@ -195,7 +283,7 @@ export const ResultModal: React.FC<ResultModalProps> = ({
         </div>
 
         {/* Stat Comparison Table */}
-        <div className="space-y-1.5 text-xs sm:text-sm mb-5 bg-black/30 border border-white/10 p-3">
+        <div className="space-y-1.5 short:space-y-0.5 text-xs sm:text-sm short:text-xs mb-5 short:mb-2.5 bg-black/30 border border-white/10 p-3 short:p-2">
           <div className="grid grid-cols-3 text-[11px] uppercase tracking-wider text-white/55 pb-1 border-b border-white/10">
             <span className="text-[#ff5d47] font-bold truncate">{red.profile.name}</span>
             <span className="text-center">Fight Stats</span>
@@ -251,14 +339,14 @@ export const ResultModal: React.FC<ResultModalProps> = ({
             type="button"
             data-start="true"
             onClick={onRematch}
-            className="flex-1 py-2.5 sm:py-3 bg-[#d92626] hover:bg-[#ef3333] text-white font-display font-extrabold text-lg uppercase tracking-wider transition-colors cursor-pointer"
+            className="flex-1 py-2.5 sm:py-3 short:py-2 bg-[#d92626] hover:bg-[#ef3333] text-white font-display font-extrabold text-lg uppercase tracking-wider transition-colors cursor-pointer"
           >
             Rematch
           </button>
           <button
             type="button"
             onClick={onReturnTitle}
-            className="flex-1 py-2.5 sm:py-3 bg-[#191c25] hover:bg-[#232734] border border-white/15 text-white font-display font-bold text-lg uppercase tracking-wider transition-colors cursor-pointer"
+            className="flex-1 py-2.5 sm:py-3 short:py-2 bg-[#191c25] hover:bg-[#232734] border border-white/15 text-white font-display font-bold text-lg uppercase tracking-wider transition-colors cursor-pointer"
           >
             Fighter Select
           </button>
@@ -273,6 +361,7 @@ interface ControlsModalProps {
   touchEnabled: boolean;
   onUpdateSettings: (next: ControlSettings) => void;
   onToggleTouchEnabled: () => void;
+  onOpenLayoutEditor?: () => void;
   onResetDefaults: () => void;
   onClose: () => void;
 }
@@ -284,6 +373,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
   touchEnabled,
   onUpdateSettings,
   onToggleTouchEnabled,
+  onOpenLayoutEditor,
   onResetDefaults,
   onClose,
 }) => {
@@ -293,6 +383,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
   const [capturingAction, setCapturingAction] = useState<KeyboardAction | null>(
     null,
   );
+  const isCustomPositions = hasCustomTouchLayout(settings.touch);
 
   useEffect(() => {
     if (!capturingAction) return;
@@ -338,24 +429,54 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
       aria-label="Customize Controls"
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/82 p-2.5 sm:p-4"
     >
-      <div className="w-full max-w-3xl max-h-[94vh] flex flex-col bg-[#111319] border border-white/20 border-t-2 border-t-[#ff8e1c] shadow-2xl overflow-hidden">
+      <div className="w-full max-w-3xl max-h-[94vh] short:max-h-[96vh] flex flex-col bg-[#111319] border border-white/20 border-t-2 border-t-[#ff8e1c] shadow-2xl overflow-hidden">
         {/* Modal Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-white/15 px-4 sm:px-6 py-3 shrink-0">
+        <div className="flex items-center justify-between gap-3 border-b border-white/15 px-4 sm:px-6 py-3 short:py-2 shrink-0">
           <div>
-            <h2 className="font-display font-extrabold text-xl sm:text-2xl uppercase text-white tracking-wide leading-none">
+            <h2 className="font-display font-extrabold text-xl sm:text-2xl short:text-lg uppercase text-white tracking-wide leading-none">
               Customize Controls
             </h2>
-            <p className="text-[11px] text-white/55 mt-0.5">
-              Changes save automatically and apply immediately in the Octagon.
+            <p className="text-[11px] short:hidden text-white/55 mt-0.5">
+              Changes save automatically and apply immediately in the arena.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-xs font-bold uppercase text-white cursor-pointer min-h-[36px]"
+            className="px-4 py-2 short:py-1 bg-white/10 hover:bg-white/20 text-xs font-bold uppercase text-white cursor-pointer min-h-[44px] short:min-h-[36px]"
           >
             Close
           </button>
+        </div>
+
+        {/* Camera Angle Bar */}
+        <div className="px-4 sm:px-6 py-2 short:py-1.5 bg-[#0c0e14] border-b border-white/15 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-white/85">
+            <Camera className="w-3.5 h-3.5 text-[#ff8e1c]" aria-hidden="true" />
+            <span>Camera Angle</span>
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 flex-1 sm:flex-initial">
+            {CAMERA_PRESET_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                aria-pressed={settings.cameraPreset === opt.id}
+                onClick={() =>
+                  onUpdateSettings({
+                    ...settings,
+                    cameraPreset: opt.id,
+                  })
+                }
+                className={`px-2 py-1 text-[10px] font-extrabold uppercase border cursor-pointer transition-colors whitespace-nowrap ${
+                  settings.cameraPreset === opt.id
+                    ? 'bg-[#ff8e1c] border-[#ff8e1c] text-[#090a0d]'
+                    : 'bg-[#161922] border-white/15 text-white/75 hover:text-white'
+                }`}
+              >
+                {opt.shortLabel}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Navigation Tabs */}
@@ -378,20 +499,20 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
                 setCapturingAction(null);
                 setTab(id);
               }}
-              className={`py-2 px-3 flex items-center justify-center gap-1.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer ${
+              className={`min-h-[44px] short:min-h-[36px] py-2 short:py-1 px-2 sm:px-3 flex items-center justify-center gap-1.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer ${
                 tab === id
                   ? 'bg-[#ff8e1c] text-[#090a0d]'
                   : 'text-white/70 hover:text-white hover:bg-white/5'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>{label}</span>
+              <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{label}</span>
             </button>
           ))}
         </div>
 
         {/* Scrollable Tab Body */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 short:py-2.5">
           {tab === 'keyboard' && (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white/65 pb-2 border-b border-white/10">
@@ -447,7 +568,51 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
           )}
 
           {tab === 'touch' && (
-            <div className="space-y-3.5">
+            <div className="space-y-3.5 short:space-y-2">
+              {/* Row 0: Interactive Screen Button Layout Editor */}
+              {onOpenLayoutEditor && (
+                <div className="p-3 short:p-2 bg-[#161922] border border-[#ff8e1c]/45 flex flex-wrap items-center justify-between gap-2.5">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-white">
+                      Screen Button &amp; Stick Placement
+                    </div>
+                    <div className="text-[11px] text-white/60">
+                      {isCustomPositions
+                        ? 'Custom drag-and-drop button positions active'
+                        : 'Drag buttons & joystick anywhere on the screen'}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isCustomPositions && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateSettings({
+                            ...settings,
+                            touch: {
+                              ...settings.touch,
+                              customPositions: {},
+                              customScales: {},
+                            },
+                          })
+                        }
+                        className="px-2.5 py-2 bg-white/5 hover:bg-white/15 border border-white/20 text-[11px] font-bold uppercase text-white/85 cursor-pointer"
+                      >
+                        Reset Positions
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onOpenLayoutEditor}
+                      className="px-3.5 py-2 bg-[#ff8e1c] hover:bg-[#ffa03d] text-[#090a0d] text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Move className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Edit Layout</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Row 1: Overlay Toggle + Show Button Labels */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div className="p-3 bg-[#161922] border border-white/10 flex items-center justify-between gap-2">
@@ -1047,14 +1212,14 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 border-t border-white/15 px-4 sm:px-6 py-3 bg-[#0b0d12] shrink-0">
+        <div className="flex items-center justify-between gap-3 border-t border-white/15 px-4 sm:px-6 py-3 short:py-2 bg-[#0b0d12] shrink-0">
           <button
             type="button"
             onClick={() => {
               setCapturingAction(null);
               onResetDefaults();
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/15 border border-white/15 text-xs font-bold uppercase text-white/80 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 short:py-1.5 bg-white/5 hover:bg-white/15 border border-white/15 text-xs font-bold uppercase text-white/80 cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
             Reset All Defaults
@@ -1062,7 +1227,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-6 py-2 bg-[#d92626] hover:bg-[#ef3333] text-white font-display font-bold text-base uppercase tracking-wider cursor-pointer"
+            className="px-6 py-2 short:py-1.5 bg-[#d92626] hover:bg-[#ef3333] text-white font-display font-bold text-base uppercase tracking-wider cursor-pointer"
           >
             Done
           </button>

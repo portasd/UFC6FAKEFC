@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Pause, Gamepad2, Smartphone } from 'lucide-react';
+import { Gamepad2 } from 'lucide-react';
 import { BoutState, formatFightClock } from '../game/combatEngine';
 import {
   DEFAULT_CONTROL_SETTINGS,
@@ -94,15 +94,11 @@ interface BroadcastHudProps {
   maxRounds: number;
   currentRound: number;
   simulationMode?: boolean;
-  muted: boolean;
   controllerConnected: boolean;
   touchControlsEnabled: boolean;
   keyboardBindings?: Record<KeyboardAction, string>;
   hudRefs: React.MutableRefObject<HudDomRefs>;
-  onToggleMute: () => void;
-  onPause: () => void;
-  onOpenControls: () => void;
-  onToggleTouchControls: () => void;
+  onPause?: () => void;
 }
 
 function HeadIcon() {
@@ -160,15 +156,11 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
   maxRounds,
   currentRound,
   simulationMode = false,
-  muted,
   controllerConnected,
   touchControlsEnabled,
   keyboardBindings = DEFAULT_CONTROL_SETTINGS.keyboard,
   hudRefs,
-  onToggleMute,
   onPause,
-  onOpenControls,
-  onToggleTouchControls,
 }) => {
   return (
     <>
@@ -186,12 +178,12 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
           boxShadow: 'inset 0 0 140px rgba(212, 14, 8, 0.9)',
         }}
       />
-      <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-3 sm:p-5 safe-area-pad">
+      <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-2 sm:p-5 short:p-1.5 safe-area-pad">
       {/* Top Broadcast Bar */}
-      <div className="w-full max-w-[1380px] mx-auto flex items-start justify-between gap-3">
+      <div className="w-full max-w-[1380px] mx-auto flex items-start justify-between gap-1.5 sm:gap-3">
         {/* TOP-LEFT: RED CORNER */}
-        <div className="flex items-start gap-3 flex-1 max-w-[440px]">
-          <div className="pt-1 pl-1">
+        <div className="flex items-start gap-2 sm:gap-3 flex-1 max-w-[440px] min-w-0">
+          <div className="hidden sm:block short:hidden pt-1 pl-1">
             <CornerDiamond color="red" />
           </div>
 
@@ -208,7 +200,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
             </div>
 
             {/* 3 Vitality Segments: Head, Body, Leg */}
-            <div className="grid grid-cols-3 gap-1.5 mb-1">
+            <div className="grid grid-cols-3 gap-1 sm:gap-1.5 mb-1">
               {[
                 { key: 'head', icon: <HeadIcon />, refName: 'redHeadBar' as const },
                 { key: 'body', icon: <BodyIcon />, refName: 'redBodyBar' as const },
@@ -216,9 +208,9 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
               ].map((seg) => (
                 <div
                   key={seg.key}
-                  className="flex items-center bg-black/80 border border-white/20 h-4 overflow-hidden"
+                  className="flex items-center bg-black/80 border border-white/20 h-3.5 sm:h-4 overflow-hidden"
                 >
-                  <div className="w-5 h-full bg-[#15171d] text-slate-200 flex items-center justify-center border-r border-white/15 shrink-0">
+                  <div className="w-3.5 sm:w-5 h-full bg-[#15171d] text-slate-200 flex items-center justify-center border-r border-white/15 shrink-0">
                     {seg.icon}
                   </div>
                   <div className="flex-1 h-full bg-[#242730] relative">
@@ -235,7 +227,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
             </div>
 
             {/* Amber Stamina Bar */}
-            <div className="h-2.5 w-full bg-black/85 border border-white/20 mb-1 overflow-hidden">
+            <div className="h-2 sm:h-2.5 w-full bg-black/85 border border-white/20 mb-1 overflow-hidden">
               <div
                 ref={(el) => {
                   hudRefs.current.redStaminaBar = el;
@@ -246,8 +238,8 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
             </div>
 
             {/* Crimson Nameplate */}
-            <div className="bg-gradient-to-r from-[#9e1a1a] via-[#7f1313] to-[#3b0c0c]/90 px-2.5 py-0.5 border-l-2 border-[#ff5640]">
-              <span className="font-display font-bold tracking-wider text-sm sm:text-base text-white uppercase hud-text-stroke block truncate">
+            <div className="bg-gradient-to-r from-[#9e1a1a] via-[#7f1313] to-[#3b0c0c]/90 px-2 sm:px-2.5 py-0.5 border-l-2 border-[#ff5640]">
+              <span className="font-display font-bold tracking-wider text-xs sm:text-base text-white uppercase hud-text-stroke block truncate">
                 {redName}
               </span>
             </div>
@@ -255,56 +247,59 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
         </div>
 
         {/* TOP-CENTER: ROUND, CLOCK & MOMENTUM */}
-        <div className="flex flex-col items-center shrink-0 px-2 pt-0.5">
-          {/* Momentum Tick Meter */}
-          <div className="w-28 h-2 flex items-center justify-center relative mb-1">
-            <div className="w-full h-[2px] bg-white/30" />
-            <div
-              ref={(el) => {
-                hudRefs.current.momentumPipEl = el;
-              }}
-              className="absolute w-3 h-2 bg-[#4ba3ff] border border-white/80 transition-transform duration-150"
-            />
-          </div>
-
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <div
-              ref={(el) => {
-                hudRefs.current.roundEl = el;
-              }}
-              className="bg-white text-[#0c0e13] font-display font-extrabold text-xs px-1.5 py-0.5 leading-none tracking-wider"
-            >
-              R{currentRound}
-            </div>
-            <div className="flex items-center gap-1">
-              {Array.from({ length: maxRounds }).map((_, i) => (
-                <span
-                  key={i}
-                  className={`w-1 h-3 ${
-                    i + 1 <= currentRound ? 'bg-white' : 'bg-white/25'
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
-
           <div
-            ref={(el) => {
-              hudRefs.current.clockEl = el;
-            }}
-            className="font-display font-extrabold text-2xl sm:text-3xl leading-none text-white tabular-nums hud-text-stroke tracking-tight"
+            onDoubleClick={onPause}
+            className="flex flex-col items-center shrink-0 px-1 sm:px-2 pt-0.5 select-none"
           >
-            3:00
-          </div>
-          {simulationMode && (
-            <div className="mt-0.5 text-[9px] font-bold tracking-[0.2em] uppercase text-[#ff8e1c] hud-text-stroke">
-              SIMULATION
+            {/* Momentum Tick Meter */}
+            <div className="w-16 sm:w-28 h-2 flex items-center justify-center relative mb-1">
+              <div className="w-full h-[2px] bg-white/30" />
+              <div
+                ref={(el) => {
+                  hudRefs.current.momentumPipEl = el;
+                }}
+                className="absolute w-3 h-2 bg-[#4ba3ff] border border-white/80 transition-transform duration-150"
+              />
             </div>
-          )}
-        </div>
+
+            <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5">
+              <div
+                ref={(el) => {
+                  hudRefs.current.roundEl = el;
+                }}
+                className="bg-white text-[#0c0e13] font-display font-extrabold text-[11px] sm:text-xs px-1.5 py-0.5 leading-none tracking-wider"
+              >
+                R{currentRound}
+              </div>
+              <div className="flex items-center gap-0.5 sm:gap-1">
+                {Array.from({ length: maxRounds }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={`w-1 h-2.5 sm:h-3 ${
+                      i + 1 <= currentRound ? 'bg-white' : 'bg-white/25'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div
+              ref={(el) => {
+                hudRefs.current.clockEl = el;
+              }}
+              className="font-display font-extrabold text-xl sm:text-3xl short:text-lg leading-none text-white tabular-nums hud-text-stroke tracking-tight"
+            >
+              3:00
+            </div>
+            {simulationMode && (
+              <div className="mt-0.5 text-[8px] sm:text-[9px] font-bold tracking-[0.18em] uppercase text-[#ff8e1c] hud-text-stroke">
+                SIM
+              </div>
+            )}
+          </div>
 
         {/* TOP-RIGHT: BLUE CORNER */}
-        <div className="flex items-start gap-3 flex-1 max-w-[440px]">
+        <div className="flex items-start gap-2 sm:gap-3 flex-1 max-w-[440px] min-w-0">
           <div className="flex-1 min-w-0">
             {/* Thin Guard / Block Bar */}
             <div className="h-1.5 w-full bg-black/75 border border-white/15 mb-1 overflow-hidden">
@@ -318,7 +313,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
             </div>
 
             {/* 3 Vitality Segments (Mirrored: Leg, Body, Head toward center) */}
-            <div className="grid grid-cols-3 gap-1.5 mb-1">
+            <div className="grid grid-cols-3 gap-1 sm:gap-1.5 mb-1">
               {[
                 { key: 'leg', icon: <LegIcon />, refName: 'blueLegBar' as const },
                 { key: 'body', icon: <BodyIcon />, refName: 'blueBodyBar' as const },
@@ -326,7 +321,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
               ].map((seg) => (
                 <div
                   key={seg.key}
-                  className="flex items-center bg-black/80 border border-white/20 h-4 overflow-hidden"
+                  className="flex items-center bg-black/80 border border-white/20 h-3.5 sm:h-4 overflow-hidden"
                 >
                   <div className="flex-1 h-full bg-[#242730] relative">
                     <div
@@ -337,7 +332,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
                       style={{ width: '100%' }}
                     />
                   </div>
-                  <div className="w-5 h-full bg-[#15171d] text-slate-200 flex items-center justify-center border-l border-white/15 shrink-0">
+                  <div className="w-3.5 sm:w-5 h-full bg-[#15171d] text-slate-200 flex items-center justify-center border-l border-white/15 shrink-0">
                     {seg.icon}
                   </div>
                 </div>
@@ -345,7 +340,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
             </div>
 
             {/* Amber Stamina Bar */}
-            <div className="h-2.5 w-full bg-black/85 border border-white/20 mb-1 overflow-hidden">
+            <div className="h-2 sm:h-2.5 w-full bg-black/85 border border-white/20 mb-1 overflow-hidden">
               <div
                 ref={(el) => {
                   hudRefs.current.blueStaminaBar = el;
@@ -356,14 +351,14 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
             </div>
 
             {/* Blue Nameplate */}
-            <div className="bg-gradient-to-l from-[#18529c] via-[#133e77] to-[#0a1d38]/90 px-2.5 py-0.5 border-r-2 border-[#4ea2ff] text-right">
-              <span className="font-display font-bold tracking-wider text-sm sm:text-base text-white uppercase hud-text-stroke block truncate">
+            <div className="bg-gradient-to-l from-[#18529c] via-[#133e77] to-[#0a1d38]/90 px-2 sm:px-2.5 py-0.5 border-r-2 border-[#4ea2ff] text-right">
+              <span className="font-display font-bold tracking-wider text-xs sm:text-base text-white uppercase hud-text-stroke block truncate">
                 {blueName}
               </span>
             </div>
           </div>
 
-          <div className="pt-1 pr-1">
+          <div className="hidden sm:block short:hidden pt-1 pr-1">
             <CornerDiamond color="blue" />
           </div>
         </div>
@@ -385,7 +380,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
         />
       </div>
 
-      {/* Bottom Corner Utility & Controller Indicator */}
+      {/* Bottom Keyboard Legend (Desktop only when touch controls off) */}
       <div className="w-full max-w-[1380px] mx-auto flex items-end justify-between gap-3">
         {!touchControlsEnabled ? (
           <div className="hidden md:flex text-[11px] font-medium text-white/90 tracking-wide bg-[#090a0d]/80 px-3 py-1.5 border border-white/15 items-center gap-3">
@@ -397,7 +392,7 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
               {formatKeyCode(keyboardBindings.leadPunch)}/{formatKeyCode(keyboardBindings.rearPunch)}/{formatKeyCode(keyboardBindings.leadKick)}/{formatKeyCode(keyboardBindings.rearKick)} Strikes ·{' '}
               {formatKeyCode(keyboardBindings.hookMod)} Hooks ·{' '}
               {formatKeyCode(keyboardBindings.bodyMod)} Body ·{' '}
-              {formatKeyCode(keyboardBindings.block)} Block/Feint · Arrows Head Move
+              {formatKeyCode(keyboardBindings.block)} Block/Feint · Arrows Head Move · V Cam · {formatKeyCode(keyboardBindings.pause)} Pause
             </span>
             {controllerConnected && (
               <span className="inline-flex items-center gap-1 text-[#4ea2ff]">
@@ -407,67 +402,6 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
             )}
           </div>
         ) : null}
-
-        <div
-          className={`flex items-center gap-1.5 sm:gap-2 pointer-events-auto ${
-            touchControlsEnabled ? 'mx-auto' : 'ml-auto'
-          }`}
-        >
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onToggleTouchControls();
-            }}
-            aria-label="Toggle On-Screen Touch Controls"
-            aria-pressed={touchControlsEnabled}
-            className={`h-8 sm:h-9 px-2.5 border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-              touchControlsEnabled
-                ? 'bg-[#ff8e1c] border-[#ff8e1c] text-[#090a0d]'
-                : 'bg-black/75 hover:bg-black/90 border-white/20 text-white/90'
-            }`}
-          >
-            <Smartphone className="w-3.5 h-3.5" aria-hidden="true" />
-            <span className="hidden sm:inline">Touch</span>
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onOpenControls();
-            }}
-            aria-label="Controls Guide"
-            className="h-8 sm:h-9 px-2.5 sm:px-3 bg-black/75 hover:bg-black/90 border border-white/20 text-xs font-semibold text-white/90 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            Controls
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onToggleMute();
-            }}
-            aria-label={muted ? 'Unmute Audio' : 'Mute Audio'}
-            className="w-8 h-8 sm:w-9 sm:h-9 bg-black/75 hover:bg-black/90 border border-white/20 flex items-center justify-center text-white/90 transition-colors cursor-pointer"
-          >
-            {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onPause();
-            }}
-            aria-label="Pause Fight"
-            className="w-8 h-8 sm:w-9 sm:h-9 bg-black/75 hover:bg-black/90 border border-white/20 flex items-center justify-center text-white/90 transition-colors cursor-pointer"
-          >
-            <Pause className="w-4 h-4" />
-          </button>
-        </div>
       </div>
       </div>
     </>

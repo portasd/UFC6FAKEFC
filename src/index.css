@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant short (@media (max-height: 540px));
 
 @layer base {
   html,
@@ -39,4 +40,9 @@
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
+}
+
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }

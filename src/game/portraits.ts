@@ -3,31 +3,29 @@ import { FighterProfile } from './fighters';
 const portraitCache = new Map<string, string>();
 
 export function getFighterPortraitUrl(profile: FighterProfile): string {
+  return `/assets/fighters/${profile.id}.jpg`;
+}
+
+export function getFighterFallbackPortraitUrl(profile: FighterProfile): string {
   const cached = portraitCache.get(profile.id);
   if (cached) return cached;
   if (typeof document === 'undefined') return '';
 
   const c = document.createElement('canvas');
-  c.width = 160;
-  c.height = 104;
+  c.width = 140;
+  c.height = 140;
   const ctx = c.getContext('2d');
   if (!ctx) return '';
 
-  const bg = ctx.createLinearGradient(0, 0, 0, 104);
-  bg.addColorStop(0, '#2a303e');
-  bg.addColorStop(1, '#0d0f15');
+  const bg = ctx.createRadialGradient(70, 56, 8, 70, 68, 92);
+  bg.addColorStop(0, '#2a3244');
+  bg.addColorStop(1, '#0d1018');
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, 160, 104);
-
-  const rim = ctx.createRadialGradient(84, 42, 6, 80, 48, 60);
-  rim.addColorStop(0, 'rgba(255, 224, 196, 0.22)');
-  rim.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  ctx.fillStyle = rim;
-  ctx.fillRect(0, 0, 160, 104);
+  ctx.fillRect(0, 0, 140, 140);
 
   ctx.save();
-  ctx.translate(80, 4);
-  ctx.scale(0.76, 0.76);
+  ctx.translate(70, 12);
+  ctx.scale(0.88, 0.88);
 
   const skin = profile.appearance.skinHex;
   const hair = profile.appearance.hairHex;
@@ -35,10 +33,10 @@ export function getFighterPortraitUrl(profile: FighterProfile): string {
   const sw = 58 * profile.buildScale;
   ctx.fillStyle = skin;
   ctx.beginPath();
-  ctx.moveTo(-sw, 134);
+  ctx.moveTo(-sw, 138);
   ctx.quadraticCurveTo(-44 * profile.buildScale, 92, -16, 86);
   ctx.lineTo(16, 86);
-  ctx.quadraticCurveTo(44 * profile.buildScale, 92, sw, 134);
+  ctx.quadraticCurveTo(44 * profile.buildScale, 92, sw, 138);
   ctx.closePath();
   ctx.fill();
 
@@ -50,8 +48,8 @@ export function getFighterPortraitUrl(profile: FighterProfile): string {
   const ts = profile.appearance.tattooStyle;
   if (ts === 'hollowayFull' || ts === 'poirierFull' || ts === 'fullSleeveChest') {
     ctx.fillStyle = 'rgba(18, 25, 32, 0.56)';
-    ctx.fillRect(-38, 100, 32, 22);
-    ctx.fillRect(6, 100, 32, 22);
+    ctx.fillRect(-38, 100, 32, 24);
+    ctx.fillRect(6, 100, 32, 24);
   } else if (ts === 'mcgregorChest') {
     ctx.fillStyle = 'rgba(18, 25, 32, 0.58)';
     ctx.beginPath();
@@ -194,6 +192,28 @@ export function getFighterPortraitUrl(profile: FighterProfile): string {
   }
 
   ctx.restore();
+
+  // Pixelate full square bust (head + ears + neck + upper traps) via 30x30 nearest-neighbor pass
+  const tiny = document.createElement('canvas');
+  tiny.width = 30;
+  tiny.height = 30;
+  const tctx = tiny.getContext('2d');
+  if (tctx) {
+    tctx.imageSmoothingEnabled = true;
+    tctx.drawImage(c, 10, 4, 120, 120, 0, 0, 30, 30);
+    const out = document.createElement('canvas');
+    out.width = 240;
+    out.height = 240;
+    const octx = out.getContext('2d');
+    if (octx) {
+      octx.imageSmoothingEnabled = false;
+      octx.drawImage(tiny, 0, 0, 240, 240);
+      const dataUrl = out.toDataURL('image/png');
+      portraitCache.set(profile.id, dataUrl);
+      return dataUrl;
+    }
+  }
+
   const dataUrl = c.toDataURL('image/png');
   portraitCache.set(profile.id, dataUrl);
   return dataUrl;

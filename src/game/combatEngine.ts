@@ -123,6 +123,8 @@ export interface CombatEvent {
 
 export type GameplayMode = 'arcade' | 'simulation';
 
+export type ArenaType = 'octagon' | 'boxingRing' | 'backyard';
+
 export type KoStyle = 'backward' | 'crumple' | 'twisted';
 
 export interface FighterState {
@@ -201,6 +203,7 @@ export interface BoutState {
   momentum: number; // -1 (Red) to +1 (Blue)
   difficulty: DifficultyLevel;
   simulationMode: boolean;
+  arena: ArenaType;
   calloutText: string;
   calloutTimer: number;
   calloutCorner: 'red' | 'blue' | 'neutral';
@@ -208,7 +211,9 @@ export interface BoutState {
   roundDamage: [number, number];
 }
 
-export const OCTAGON_RADIUS = 5.4;
+export const OCTAGON_RADIUS = 7.4;
+export const BOXING_RING_HALF_SIZE = 4.5;
+export const BACKYARD_HALF_SIZE = 4.6;
 
 export function createFighterState(
   index: 0 | 1,
@@ -288,6 +293,8 @@ export function createBoutState(
   blueProfile: FighterProfile,
   difficulty: DifficultyLevel = 'champion',
   simulationMode = false,
+  arena: ArenaType = 'octagon',
+  maxRounds = 3,
 ): BoutState {
   return {
     fighters: [
@@ -295,7 +302,7 @@ export function createBoutState(
       createFighterState(1, blueProfile),
     ],
     round: 1,
-    maxRounds: 3,
+    maxRounds,
     roundTimeRemaining: 180,
     roundDuration: 180,
     hitstopTimer: 0,
@@ -307,6 +314,7 @@ export function createBoutState(
     momentum: 0,
     difficulty,
     simulationMode,
+    arena,
     calloutText: '',
     calloutTimer: 0,
     calloutCorner: 'neutral',
@@ -432,9 +440,11 @@ export function generateAiInput(
 
   const diffCfg = DIFFICULTY_LEVELS[bout.difficulty] ?? DIFFICULTY_LEVELS.champion;
   const diffMult = diffCfg.diffMult;
+  const paceScale = bout.simulationMode ? 0.62 : 0.78;
+  const aiDt = dt * paceScale;
 
-  ai.aiThinkTimer -= dt;
-  ai.aiCooldown = Math.max(0, ai.aiCooldown - dt);
+  ai.aiThinkTimer -= aiDt;
+  ai.aiCooldown = Math.max(0, ai.aiCooldown - aiDt);
 
   const archetype: AiArchetype = ai.profile.aiArchetype;
 
@@ -633,12 +643,12 @@ export function stepBout(
     }
   }
 
-  // Queue strike presses even during hitstop freeze so the 180ms input buffer never drops combos
+  // Queue strike presses even during hitstop freeze so the input buffer never drops combos
   for (let i = 0; i < 2; i++) {
     const req = inputs[i].requestedStrike;
     if (req) {
       bout.fighters[i].queuedStrike = req;
-      bout.fighters[i].queuedStrikeTimer = 0.18;
+      bout.fighters[i].queuedStrikeTimer = 0.22;
     }
   }
 
@@ -664,7 +674,7 @@ export function stepBout(
     return events;
   }
 
-  const simPaceScale = bout.simulationMode ? 0.78 : 1.0;
+  const simPaceScale = bout.simulationMode ? 0.62 : 0.78;
   const timeScale = (bout.slowMoTimer > 0 ? 0.45 : 1.0) * simPaceScale;
   if (bout.slowMoTimer > 0) {
     bout.slowMoTimer = Math.max(0, bout.slowMoTimer - dt);
@@ -780,10 +790,10 @@ export function stepBout(
       f.stunMeter = Math.max(0, f.stunMeter - 8 * simDt);
     }
 
-    // Input queueing: buffer newly requested strike for 180ms during active/recovery/evade frames
+    // Input queueing: buffer newly requested strike for 220ms during active/recovery/evade frames
     if (input.requestedStrike) {
       f.queuedStrike = input.requestedStrike;
-      f.queuedStrikeTimer = 0.18;
+      f.queuedStrikeTimer = 0.22;
     }
 
     // Advance current action timer (record prevActionTime for swept hit detection)
@@ -904,8 +914,12 @@ export function stepBout(
         });
       } else {
         f.guard =
-          f.blockHealth > 8 && f.feintCooldown <= 0 ? input.guard : 'none';
+          f.blockHealth > 4 && f.feintCooldown <= 0 ? input.guard : 'none';
       }
+    } else if (f.action === 'stunned' || f.action === 'hitReact') {
+      // Allow raising, switching, or holding high/low guard while rocked or reacting to strikes
+      f.guard =
+        f.blockHealth > 4 && f.feintCooldown <= 0 ? input.guard : 'none';
     } else if (f.action === 'strike' && input.requestedEvade && f.actionTime < 0.09) {
       startEvade(f, input.requestedEvade);
     }
@@ -925,11 +939,16 @@ export function stepBout(
       f.maxStamina,
     );
 
-    if (f.guard === 'none' && f.action === 'idle') {
-      f.blockHealth = clamp(f.blockHealth + 18 * simDt, 0, f.maxBlockHealth);
+    if (f.guard === 'none' && (f.action === 'idle' || f.action === 'stunned')) {
+      const blockRegenRate = f.action === 'stunned' ? 10 : 18;
+      f.blockHealth = clamp(
+        f.blockHealth + blockRegenRate * simDt,
+        0,
+        f.maxBlockHealth,
+      );
     }
 
-    // Footwork & directional lunge velocity (Simulation Mode slows fighter movement)
+    // Footwork & directional lunge velocity (deliberate, weighty pace; Simulation slows further)
     const fwdX = Math.sin(f.facingYaw);
     const fwdZ = Math.cos(f.facingYaw);
     const rightX = Math.cos(f.facingYaw);
@@ -938,23 +957,23 @@ export function stepBout(
     const legMobility = 0.6 + 0.4 * (f.legHp / f.maxLegHp);
     const simMoveMult = bout.simulationMode ? 0.78 : 1.0;
     const baseMoveSpeed =
-      (2.75 + (f.profile.stats.speed - 85) * 0.025) *
+      (1.42 + (f.profile.stats.speed - 85) * 0.012) *
       legMobility *
       simMoveMult *
-      (f.guard !== 'none' ? 0.56 : 1.0) *
-      (f.action === 'stunned' ? 0.48 : 1.0);
+      (f.guard !== 'none' ? 0.54 : 1.0) *
+      (f.action === 'stunned' ? 0.45 : 1.0);
 
     if (f.lungeTimer > 0 && f.action === 'idle') {
-      const lungeSpeed = 5.35 * legMobility * simMoveMult;
+      const lungeSpeed = 3.25 * legMobility * simMoveMult;
       const targetVx = (fwdX * f.lungeDirZ + rightX * f.lungeDirX) * lungeSpeed;
       const targetVz = (fwdZ * f.lungeDirZ + rightZ * f.lungeDirX) * lungeSpeed;
-      const snap = 1 - Math.exp(-24 * simDt);
+      const snap = 1 - Math.exp(-20 * simDt);
       f.vx += (targetVx - f.vx) * snap;
       f.vz += (targetVz - f.vz) * snap;
     } else if (f.action === 'idle' || f.action === 'stunned') {
       const targetVx = (fwdX * input.moveZ + rightX * input.moveX) * baseMoveSpeed;
       const targetVz = (fwdZ * input.moveZ + rightZ * input.moveX) * baseMoveSpeed;
-      const accel = 1 - Math.exp(-14 * simDt);
+      const accel = 1 - Math.exp(-12 * simDt);
       f.vx += (targetVx - f.vx) * accel;
       f.vz += (targetVz - f.vz) * accel;
     } else if (f.action === 'strike' && f.currentStrike) {
@@ -969,8 +988,8 @@ export function stepBout(
       f.vz += (targetVz - f.vz) * damp;
     } else if (f.action === 'pullBack') {
       const damp = 1 - Math.exp(-10 * simDt);
-      f.vx += (-fwdX * 1.45 - f.vx) * damp;
-      f.vz += (-fwdZ * 1.45 - f.vz) * damp;
+      f.vx += (-fwdX * 1.05 - f.vx) * damp;
+      f.vz += (-fwdZ * 1.05 - f.vz) * damp;
     } else {
       const damp = 1 - Math.exp(-12 * simDt);
       f.vx *= 1 - damp;
@@ -981,7 +1000,7 @@ export function stepBout(
     f.z += f.vz * simDt;
 
     const speed = Math.hypot(f.vx, f.vz);
-    f.gaitPhase += speed * 4.2 * simDt;
+    f.gaitPhase += speed * 4.8 * simDt;
   }
 
   // Body collision separation & Octagon boundary clamping
@@ -1002,13 +1021,25 @@ export function stepBout(
       b.z += nz * overlap;
     }
 
-    for (const f of bout.fighters) {
-      const r = Math.hypot(f.x, f.z);
-      const maxR = OCTAGON_RADIUS - 0.55;
-      if (r > maxR) {
-        const s = maxR / r;
-        f.x *= s;
-        f.z *= s;
+    if (bout.arena === 'boxingRing' || bout.arena === 'backyard') {
+      const half =
+        bout.arena === 'backyard'
+          ? BACKYARD_HALF_SIZE
+          : BOXING_RING_HALF_SIZE;
+      const maxCoord = half - 0.52;
+      for (const f of bout.fighters) {
+        f.x = clamp(f.x, -maxCoord, maxCoord);
+        f.z = clamp(f.z, -maxCoord, maxCoord);
+      }
+    } else {
+      for (const f of bout.fighters) {
+        const r = Math.hypot(f.x, f.z);
+        const maxR = OCTAGON_RADIUS - 0.55;
+        if (r > maxR) {
+          const s = maxR / r;
+          f.x *= s;
+          f.z *= s;
+        }
       }
     }
   }
@@ -1415,6 +1446,7 @@ export function stepBout(
       def.queuedStrike = null;
       def.queuedStrikeTimer = 0;
       def.stunMeter = 12;
+      def.blockHealth = Math.max(def.blockHealth, 24);
       def.rockedFlashTimer = 2.35;
       bout.rockedFlashTimer = 2.35;
       bout.calloutText = 'ROCKED!';

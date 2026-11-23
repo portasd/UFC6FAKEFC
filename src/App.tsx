@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ArenaType,
   BoutState,
   createBoutState,
   DifficultyLevel,
@@ -7,10 +8,17 @@ import {
   generateAiInput,
   stepBout,
 } from './game/combatEngine';
-import { getFighterById, UFC_ROSTER } from './game/fighters';
+import {
+  getFighterById,
+  matchesRosterFilter,
+  RosterFilter,
+  UFC_ROSTER,
+} from './game/fighters';
 import { STRIKES } from './game/strikes';
 import { ControllerStatus, InputHub } from './game/inputHub';
 import {
+  CAMERA_PRESET_OPTIONS,
+  CameraPreset,
   cloneDefaultControlSettings,
   ControlSettings,
   loadControlSettings,
@@ -21,6 +29,7 @@ import { OctagonSceneManager } from './game/octagonScene';
 import { BroadcastHud, HudDomRefs, syncHudDom } from './components/BroadcastHud';
 import { TitleOverlay, TitleStep } from './components/TitleOverlay';
 import { MobileControls } from './components/MobileControls';
+import { TouchLayoutEditor } from './components/TouchLayoutEditor';
 import { OfflineIndicator } from './components/PWAInstall';
 import {
   ControlsModal,
@@ -43,8 +52,12 @@ export default function App() {
   const [blueId, setBlueId] = useState('mcgregor');
   const [difficulty, setDifficulty] = useState<DifficultyLevel>('champion');
   const [gameplayMode, setGameplayMode] = useState<GameplayMode>('arcade');
+  const [arena, setArena] = useState<ArenaType>('octagon');
+  const [maxRounds, setMaxRounds] = useState<number>(3);
+  const [weightFilter, setWeightFilter] = useState<RosterFilter>('all');
   const [muted, setMuted] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  const [showLayoutEditor, setShowLayoutEditor] = useState(false);
   const [touchControlsEnabled, setTouchControlsEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return (
@@ -79,6 +92,12 @@ export default function App() {
   const showControlsRef = useRef<boolean>(showControls);
   showControlsRef.current = showControls;
 
+  const showLayoutEditorRef = useRef<boolean>(showLayoutEditor);
+  showLayoutEditorRef.current = showLayoutEditor;
+
+  const cameraPresetRef = useRef<CameraPreset>(controlSettings.cameraPreset);
+  cameraPresetRef.current = controlSettings.cameraPreset;
+
   const koDelayRef = useRef<number>(0);
 
   const hudRefs = useRef<HudDomRefs>({
@@ -107,11 +126,16 @@ export default function App() {
 
   useEffect(() => {
     inputRef.current.setSettings(controlSettings);
+    sceneRef.current?.setCameraPreset(controlSettings.cameraPreset);
     saveControlSettings(controlSettings);
   }, [controlSettings]);
 
   const updateControlSettings = useCallback((next: ControlSettings) => {
     setControlSettings(next);
+  }, []);
+
+  const handleSelectCameraPreset = useCallback((cameraPreset: CameraPreset) => {
+    setControlSettings((prev) => ({ ...prev, cameraPreset }));
   }, []);
 
   const resetControlSettings = useCallback(() => {
@@ -130,21 +154,50 @@ export default function App() {
   }, []);
 
   const rebuildBout = useCallback(
-    (rId: string, bId: string, diff: DifficultyLevel, simMode: boolean) => {
+    (
+      rId: string,
+      bId: string,
+      diff: DifficultyLevel,
+      simMode: boolean,
+      arenaChoice: ArenaType,
+      rounds: number,
+    ) => {
       const next = createBoutState(
         getFighterById(rId),
         getFighterById(bId),
         diff,
         simMode,
+        arenaChoice,
+        rounds,
       );
       boutRef.current = next;
       koDelayRef.current = 0;
       setCurrentRound(1);
       setResultBout(null);
+      sceneRef.current?.setArena(arenaChoice);
       sceneRef.current?.syncFighters(next);
       syncHudDom(hudRefs.current, next);
     },
     [],
+  );
+
+  const handleSelectWeightFilter = useCallback(
+    (nextFilter: RosterFilter) => {
+      setWeightFilter(nextFilter);
+      const matching = UFC_ROSTER.filter((f) => matchesRosterFilter(f, nextFilter));
+      if (matching.length >= 2) {
+        const redValid = matching.some((f) => f.id === redId);
+        const blueValid = matching.some((f) => f.id === blueId);
+        let nextRed = redValid ? redId : matching[0].id;
+        let nextBlue = blueValid ? blueId : matching[1].id;
+        if (nextRed === nextBlue) {
+          nextBlue = matching.find((f) => f.id !== nextRed)?.id ?? matching[0].id;
+        }
+        if (nextRed !== redId) setRedId(nextRed);
+        if (nextBlue !== blueId) setBlueId(nextBlue);
+      }
+    },
+    [redId, blueId],
   );
 
   const startFight = useCallback(() => {
@@ -153,15 +206,26 @@ export default function App() {
     }
     audioRef.current.unlock();
     inputRef.current.clear();
-    rebuildBout(redId, blueId, difficulty, gameplayMode === 'simulation');
+    rebuildBout(
+      redId,
+      blueId,
+      difficulty,
+      gameplayMode === 'simulation',
+      arena,
+      maxRounds,
+    );
     modeRef.current = 'playing';
     document.body.dataset.state = 'playing';
     setMode('playing');
     setShowControls(false);
     audioRef.current.playRoundBell(1);
-  }, [redId, blueId, difficulty, gameplayMode, rebuildBout]);
+  }, [redId, blueId, difficulty, gameplayMode, arena, maxRounds, rebuildBout]);
 
   const togglePause = useCallback(() => {
+    if (showLayoutEditorRef.current) {
+      setShowLayoutEditor(false);
+      return;
+    }
     if (showControlsRef.current) {
       setShowControls(false);
       return;
@@ -184,27 +248,54 @@ export default function App() {
   }, []);
 
   const randomizeMatchup = useCallback(() => {
-    const rIdx = Math.floor(Math.random() * UFC_ROSTER.length);
-    let bIdx = Math.floor(Math.random() * UFC_ROSTER.length);
+    const pool = UFC_ROSTER.filter((f) => matchesRosterFilter(f, weightFilter));
+    const list = pool.length >= 2 ? pool : UFC_ROSTER;
+    const rIdx = Math.floor(Math.random() * list.length);
+    let bIdx = Math.floor(Math.random() * list.length);
     if (bIdx === rIdx) {
-      bIdx = (rIdx + 1) % UFC_ROSTER.length;
+      bIdx = (rIdx + 1) % list.length;
     }
-    setRedId(UFC_ROSTER[rIdx].id);
-    setBlueId(UFC_ROSTER[bIdx].id);
-  }, []);
+    setRedId(list[rIdx].id);
+    setBlueId(list[bIdx].id);
+  }, [weightFilter]);
 
-  // Sync fighter previews on Title screen when corners or mode change
+  // Sync fighter previews & active 3D arena on Title screen when corners, mode, or arena change
   useEffect(() => {
     if (modeRef.current === 'title') {
-      rebuildBout(redId, blueId, difficulty, gameplayMode === 'simulation');
+      rebuildBout(
+        redId,
+        blueId,
+        difficulty,
+        gameplayMode === 'simulation',
+        arena,
+        maxRounds,
+      );
     }
-  }, [redId, blueId, difficulty, gameplayMode, rebuildBout]);
+  }, [redId, blueId, difficulty, gameplayMode, arena, maxRounds, rebuildBout]);
 
-  // Global keyboard shortcuts (Title Enter/Space/R/C, Mute M)
+  // Global keyboard shortcuts (Title Enter/Space/R/C, Mute M, Camera V)
   useEffect(() => {
     const onGlobalKey = (e: KeyboardEvent) => {
       if (e.code === 'KeyM' && !e.repeat) {
         toggleMute();
+        return;
+      }
+      if (
+        modeRef.current === 'playing' &&
+        e.code === 'KeyV' &&
+        !e.repeat &&
+        !showControlsRef.current &&
+        !showLayoutEditorRef.current
+      ) {
+        setControlSettings((prev) => {
+          const idx = Math.max(
+            0,
+            CAMERA_PRESET_OPTIONS.findIndex((c) => c.id === prev.cameraPreset),
+          );
+          const next =
+            CAMERA_PRESET_OPTIONS[(idx + 1) % CAMERA_PRESET_OPTIONS.length].id;
+          return { ...prev, cameraPreset: next };
+        });
         return;
       }
       if (modeRef.current === 'title') {
@@ -216,6 +307,9 @@ export default function App() {
           if (showControlsRef.current) {
             setShowControls(false);
           } else if (titleStepRef.current === 'select') {
+            titleStepRef.current = 'setup';
+            setTitleStep('setup');
+          } else if (titleStepRef.current === 'setup') {
             titleStepRef.current = 'menu';
             setTitleStep('menu');
           }
@@ -237,6 +331,9 @@ export default function App() {
           e.preventDefault();
           if (titleStepRef.current === 'menu') {
             audioRef.current.unlock();
+            titleStepRef.current = 'setup';
+            setTitleStep('setup');
+          } else if (titleStepRef.current === 'setup') {
             titleStepRef.current = 'select';
             setTitleStep('select');
           } else {
@@ -256,6 +353,8 @@ export default function App() {
 
     const scene = new OctagonSceneManager(mount);
     sceneRef.current = scene;
+    scene.setArena(boutRef.current.arena);
+    scene.setCameraPreset(cameraPresetRef.current);
     scene.syncFighters(boutRef.current);
 
     inputRef.current.setPauseCallback(togglePause);
@@ -266,6 +365,9 @@ export default function App() {
 
     scene.startLoop((dt, elapsedSec) => {
       const bout = boutRef.current;
+      const isPerspectiveFollowCam =
+        cameraPresetRef.current === 'firstPerson' ||
+        cameraPresetRef.current === 'thirdPerson';
 
       // Sync gamepad connection indicator only when changed
       const gpConn = inputRef.current.controllerStatus.connected;
@@ -273,11 +375,22 @@ export default function App() {
         lastControllerConnected = gpConn;
         setController({ ...inputRef.current.controllerStatus });
       } else {
-        inputRef.current.pollGamepad();
+        inputRef.current.pollGamepad(
+          bout.fighters[0].facingYaw,
+          isPerspectiveFollowCam,
+        );
       }
 
-      if (modeRef.current === 'playing' && !showControlsRef.current) {
-        const playerIn = inputRef.current.samplePlayerInput(dt);
+      if (
+        modeRef.current === 'playing' &&
+        !showControlsRef.current &&
+        !showLayoutEditorRef.current
+      ) {
+        const playerIn = inputRef.current.samplePlayerInput(
+          dt,
+          bout.fighters[0].facingYaw,
+          isPerspectiveFollowCam,
+        );
         const aiIn = generateAiInput(
           bout.fighters[1],
           bout.fighters[0],
@@ -388,44 +501,66 @@ export default function App() {
       />
 
       {/* Active Broadcast HUD */}
-      {mode !== 'title' && (
+      {mode !== 'title' && !showLayoutEditor && (
         <BroadcastHud
           redName={redProfile.name}
           blueName={blueProfile.name}
-          maxRounds={3}
+          maxRounds={maxRounds}
           currentRound={currentRound}
           simulationMode={gameplayMode === 'simulation'}
-          muted={muted}
           controllerConnected={controller.connected}
           touchControlsEnabled={touchControlsEnabled}
           keyboardBindings={controlSettings.keyboard}
           hudRefs={hudRefs}
-          onToggleMute={toggleMute}
           onPause={togglePause}
-          onOpenControls={() => setShowControls(true)}
-          onToggleTouchControls={() =>
-            setTouchControlsEnabled((prev) => !prev)
-          }
         />
       )}
 
       {/* Mobile Touch Controls */}
-      {mode === 'playing' && !showControls && touchControlsEnabled && (
-        <MobileControls
-          inputHub={inputRef.current}
+      {mode === 'playing' &&
+        !showControls &&
+        !showLayoutEditor &&
+        touchControlsEnabled && (
+          <MobileControls
+            inputHub={inputRef.current}
+            settings={controlSettings.touch}
+          />
+        )}
+
+      {/* Interactive Touch Button & Stick Layout Editor */}
+      {showLayoutEditor && (
+        <TouchLayoutEditor
           settings={controlSettings.touch}
+          onSave={(nextTouch) => {
+            setControlSettings((prev) => ({
+              ...prev,
+              touch: nextTouch,
+            }));
+            setTouchControlsEnabled(true);
+            setShowLayoutEditor(false);
+          }}
+          onCancel={() => setShowLayoutEditor(false)}
         />
       )}
 
-      {/* Title Main Menu & Fighter Select Screen */}
-      {mode === 'title' && (
+      {/* Title Main Menu, Match Setup & Fighter Select Screen */}
+      {mode === 'title' && !showLayoutEditor && (
         <TitleOverlay
           titleStep={titleStep}
           redId={redId}
           blueId={blueId}
           difficulty={difficulty}
           gameplayMode={gameplayMode}
+          arena={arena}
+          maxRounds={maxRounds}
+          weightFilter={weightFilter}
+          cameraPreset={controlSettings.cameraPreset}
           controller={controller}
+          onEnterSetup={() => {
+            audioRef.current.unlock();
+            titleStepRef.current = 'setup';
+            setTitleStep('setup');
+          }}
           onEnterSelect={() => {
             audioRef.current.unlock();
             titleStepRef.current = 'select';
@@ -435,10 +570,18 @@ export default function App() {
             titleStepRef.current = 'menu';
             setTitleStep('menu');
           }}
+          onBackToSetup={() => {
+            titleStepRef.current = 'setup';
+            setTitleStep('setup');
+          }}
           onSelectRed={setRedId}
           onSelectBlue={setBlueId}
           onSelectDifficulty={setDifficulty}
           onSelectGameplayMode={setGameplayMode}
+          onSelectArena={setArena}
+          onSelectMaxRounds={setMaxRounds}
+          onSelectWeightFilter={handleSelectWeightFilter}
+          onSelectCameraPreset={handleSelectCameraPreset}
           onRandomize={randomizeMatchup}
           onStartFight={startFight}
           onOpenControls={() => setShowControls(true)}
@@ -446,12 +589,25 @@ export default function App() {
       )}
 
       {/* Pause Modal */}
-      {mode === 'paused' && !showControls && (
+      {mode === 'paused' && !showControls && !showLayoutEditor && (
         <PauseModal
+          cameraPreset={controlSettings.cameraPreset}
+          muted={muted}
+          touchEnabled={touchControlsEnabled}
+          onSelectCameraPreset={handleSelectCameraPreset}
+          onToggleMute={toggleMute}
+          onToggleTouchEnabled={() => setTouchControlsEnabled((prev) => !prev)}
           onResume={togglePause}
           onRestart={startFight}
           onReturnTitle={() => {
-            rebuildBout(redId, blueId, difficulty, gameplayMode === 'simulation');
+            rebuildBout(
+              redId,
+              blueId,
+              difficulty,
+              gameplayMode === 'simulation',
+              arena,
+              maxRounds,
+            );
             titleStepRef.current = 'select';
             setTitleStep('select');
             modeRef.current = 'title';
@@ -467,7 +623,14 @@ export default function App() {
           bout={resultBout}
           onRematch={startFight}
           onReturnTitle={() => {
-            rebuildBout(redId, blueId, difficulty, gameplayMode === 'simulation');
+            rebuildBout(
+              redId,
+              blueId,
+              difficulty,
+              gameplayMode === 'simulation',
+              arena,
+              maxRounds,
+            );
             titleStepRef.current = 'select';
             setTitleStep('select');
             modeRef.current = 'title';
@@ -477,12 +640,17 @@ export default function App() {
       )}
 
       {/* Controls Customization Modal */}
-      {showControls && (
+      {showControls && !showLayoutEditor && (
         <ControlsModal
           settings={controlSettings}
           touchEnabled={touchControlsEnabled}
           onUpdateSettings={updateControlSettings}
           onToggleTouchEnabled={() => setTouchControlsEnabled((prev) => !prev)}
+          onOpenLayoutEditor={() => {
+            setTouchControlsEnabled(true);
+            setShowControls(false);
+            setShowLayoutEditor(true);
+          }}
           onResetDefaults={resetControlSettings}
           onClose={() => setShowControls(false)}
         />
