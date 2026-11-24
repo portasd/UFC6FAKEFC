@@ -27,6 +27,7 @@ import {
 } from './controlSettings';
 import { InputHub } from './inputHub';
 import { getFighterPortraitUrl } from './portraits';
+import { getFighterFaceModelUrl } from './mocapRig';
 
 const idleInput = (): FighterInput => ({
   moveX: 0,
@@ -503,7 +504,7 @@ test('fighters start 4.9m apart at the opening bell', () => {
   assert.ok(gap >= 4.8, `Expected >= 4.8m opening separation, got ${gap}`);
 });
 
-test('simulation mode slows gameplay pace, movement speed, and stamina regeneration', () => {
+test('simulation mode boosts head/body health and keeps fluid footwork with measured stamina regen', () => {
   const arcBout = createBoutState(
     getFighterById('holloway'),
     getFighterById('mcgregor'),
@@ -516,6 +517,17 @@ test('simulation mode slows gameplay pace, movement speed, and stamina regenerat
     'champion',
     true,
   );
+
+  assert.ok(
+    simBout.fighters[0].maxHeadHp >= arcBout.fighters[0].maxHeadHp * 1.45,
+    `Expected simulation maxHeadHp (${simBout.fighters[0].maxHeadHp}) >= 1.45x arcade (${arcBout.fighters[0].maxHeadHp})`,
+  );
+  assert.ok(
+    simBout.fighters[0].maxBodyHp >= arcBout.fighters[0].maxBodyHp * 1.45,
+    `Expected simulation maxBodyHp (${simBout.fighters[0].maxBodyHp}) >= 1.45x arcade (${arcBout.fighters[0].maxBodyHp})`,
+  );
+  assert.equal(simBout.fighters[0].headHp, simBout.fighters[0].maxHeadHp);
+  assert.equal(simBout.fighters[0].bodyHp, simBout.fighters[0].maxBodyHp);
 
   arcBout.fighters[0].stamina = 40;
   simBout.fighters[0].stamina = 40;
@@ -535,14 +547,14 @@ test('simulation mode slows gameplay pace, movement speed, and stamina regenerat
   const arcMoved = arcBout.fighters[0].x - arcStartX;
   const simMoved = simBout.fighters[0].x - simStartX;
   assert.ok(
-    simMoved < arcMoved * 0.78,
-    `Expected simulation move (${simMoved.toFixed(3)}) < arcade move (${arcMoved.toFixed(3)})`,
+    simMoved < arcMoved && simMoved > arcMoved * 0.82,
+    `Expected responsive simulation move (${simMoved.toFixed(3)}) near arcade move (${arcMoved.toFixed(3)})`,
   );
 
   const arcStamGained = arcBout.fighters[0].stamina - 40;
   const simStamGained = simBout.fighters[0].stamina - 40;
   assert.ok(
-    simStamGained < arcStamGained * 0.72,
+    simStamGained < arcStamGained * 0.8,
     `Expected simulation stamina gain (${simStamGained.toFixed(2)}) < arcade stamina gain (${arcStamGained.toFixed(2)})`,
   );
   assert.ok(
@@ -871,5 +883,65 @@ test('every fighter in UFC_ROSTER maps to a real non-empty photo file in public/
   }
 });
 
+test('every fighter in UFC_ROSTER maps to a real high-res PNG face texture for 3D head models', () => {
+  for (const fighter of UFC_ROSTER) {
+    const faceUrl = getFighterFaceModelUrl(fighter);
+    assert.equal(faceUrl, `/assets/faces/${fighter.id}.png`);
+    const diskPath = path.resolve(
+      process.cwd(),
+      'public',
+      'assets',
+      'faces',
+      `${fighter.id}.png`,
+    );
+    assert.ok(
+      fs.existsSync(diskPath),
+      `Missing 3D fighter face photo on disk: ${diskPath}`,
+    );
+    const stat = fs.statSync(diskPath);
+    assert.ok(
+      stat.size > 50000,
+      `Fighter 3D face PNG looks too small (${stat.size} bytes): ${diskPath}`,
+    );
+  }
+});
 
+test('clean head and body impacts accumulate cuts, bleedSide, bruising, and emit cutSeverity events', () => {
+  const bout = createBoutState(
+    getFighterById('pereira'),
+    getFighterById('holloway'),
+    'champion',
+    true,
+  );
+  bout.fighters[0].x = -0.58;
+  bout.fighters[1].x = 0.58;
 
+  const hookEvents = advanceSeconds(bout, 0.55, (t) => [
+    t < 0.02 ? { ...idleInput(), requestedStrike: 'leadHook' } : idleInput(),
+    idleInput(),
+  ]);
+  const headHit = hookEvents.find((e) => e.type === 'hit' && e.zone === 'head');
+  assert.ok(headHit, 'Expected leadHook to land cleanly on head');
+  assert.ok(
+    (headHit.cutSeverity ?? 0) > 0,
+    `Expected hit event cutSeverity > 0, got ${headHit.cutSeverity}`,
+  );
+  assert.ok(
+    bout.fighters[1].headCutSeverity > 0,
+    'Expected defender headCutSeverity to increase after clean head strike',
+  );
+  assert.notEqual(bout.fighters[1].bleedSide, 0, 'Expected bleedSide to latch onto struck side');
+
+  bout.fighters[0].x = -0.6;
+  bout.fighters[1].x = 0.6;
+  const bodyEvents = advanceSeconds(bout, 0.55, (t) => [
+    t < 0.02 ? { ...idleInput(), requestedStrike: 'rearBodyHook' } : idleInput(),
+    idleInput(),
+  ]);
+  const bodyHit = bodyEvents.find((e) => e.type === 'hit' && e.zone === 'body');
+  assert.ok(bodyHit, 'Expected rearBodyHook to land cleanly on body');
+  assert.ok(
+    bout.fighters[1].bodyBruiseSeverity > 0,
+    'Expected defender bodyBruiseSeverity to increase after clean body strike',
+  );
+});

@@ -118,6 +118,7 @@ export interface CombatEvent {
   damage?: number;
   isCounter?: boolean;
   isHeavy?: boolean;
+  cutSeverity?: number;
   hitPosition?: { x: number; y: number; z: number };
 }
 
@@ -170,6 +171,9 @@ export interface FighterState {
   koStyle: KoStyle;
   hitFlashTimer: number;
   rockedFlashTimer: number;
+  headCutSeverity: number;
+  bodyBruiseSeverity: number;
+  bleedSide: -1 | 0 | 1;
   stunMeter: number;
   knockdowns: number;
   strikesLanded: number;
@@ -218,11 +222,13 @@ export const BACKYARD_HALF_SIZE = 4.6;
 export function createFighterState(
   index: 0 | 1,
   profile: FighterProfile,
+  simulationMode = false,
 ): FighterState {
   const startX = index === 0 ? -2.45 : 2.45;
   const facingYaw = index === 0 ? Math.PI / 2 : -Math.PI / 2;
-  const maxHead = 100 + (profile.stats.chin - 85) * 1.1;
-  const maxBody = 100 + (profile.stats.cardio - 85) * 0.8;
+  const simVitalityMult = simulationMode ? 1.5 : 1.0;
+  const maxHead = (100 + (profile.stats.chin - 85) * 1.1) * simVitalityMult;
+  const maxBody = (100 + (profile.stats.cardio - 85) * 0.8) * simVitalityMult;
   const maxLeg = 100 + (profile.stats.chin - 85) * 0.6;
   const maxStam = 100 + (profile.stats.cardio - 85) * 0.9;
 
@@ -269,6 +275,9 @@ export function createFighterState(
     koStyle: 'backward',
     hitFlashTimer: 0,
     rockedFlashTimer: 0,
+    headCutSeverity: 0,
+    bodyBruiseSeverity: 0,
+    bleedSide: 0,
     stunMeter: 0,
     knockdowns: 0,
     strikesLanded: 0,
@@ -298,8 +307,8 @@ export function createBoutState(
 ): BoutState {
   return {
     fighters: [
-      createFighterState(0, redProfile),
-      createFighterState(1, blueProfile),
+      createFighterState(0, redProfile, simulationMode),
+      createFighterState(1, blueProfile, simulationMode),
     ],
     round: 1,
     maxRounds,
@@ -440,7 +449,7 @@ export function generateAiInput(
 
   const diffCfg = DIFFICULTY_LEVELS[bout.difficulty] ?? DIFFICULTY_LEVELS.champion;
   const diffMult = diffCfg.diffMult;
-  const paceScale = bout.simulationMode ? 0.62 : 0.78;
+  const paceScale = bout.simulationMode ? 0.74 : 0.78;
   const aiDt = dt * paceScale;
 
   ai.aiThinkTimer -= aiDt;
@@ -674,7 +683,7 @@ export function stepBout(
     return events;
   }
 
-  const simPaceScale = bout.simulationMode ? 0.62 : 0.78;
+  const simPaceScale = bout.simulationMode ? 0.74 : 0.78;
   const timeScale = (bout.slowMoTimer > 0 ? 0.45 : 1.0) * simPaceScale;
   if (bout.slowMoTimer > 0) {
     bout.slowMoTimer = Math.max(0, bout.slowMoTimer - dt);
@@ -727,8 +736,10 @@ export function stepBout(
         f.guard = 'none';
         f.stamina = Math.min(f.maxStamina, f.stamina + f.maxStamina * 0.45);
         f.blockHealth = Math.min(f.maxBlockHealth, f.blockHealth + 35);
-        f.headHp = Math.min(f.maxHeadHp, f.headHp + 10);
-        f.bodyHp = Math.min(f.maxBodyHp, f.bodyHp + 10);
+        f.headHp = Math.min(f.maxHeadHp, f.headHp + (bout.simulationMode ? 14 : 10));
+        f.bodyHp = Math.min(f.maxBodyHp, f.bodyHp + (bout.simulationMode ? 14 : 10));
+        f.headCutSeverity = f.headCutSeverity * 0.85;
+        f.bodyBruiseSeverity = f.bodyBruiseSeverity * 0.9;
         f.stunMeter = 0;
       }
       bout.calloutText = `ROUND ${bout.round}`;
@@ -955,7 +966,7 @@ export function stepBout(
     const rightZ = -Math.sin(f.facingYaw);
 
     const legMobility = 0.6 + 0.4 * (f.legHp / f.maxLegHp);
-    const simMoveMult = bout.simulationMode ? 0.78 : 1.0;
+    const simMoveMult = bout.simulationMode ? 0.96 : 1.0;
     const baseMoveSpeed =
       (1.42 + (f.profile.stats.speed - 85) * 0.012) *
       legMobility *
@@ -1305,14 +1316,51 @@ export function stepBout(
       atk.strikePowerMult *
       fatigueMult;
 
+    const hitFromLeft =
+      (atk.stance === 'orthodox' && spec.isLeadSide) ||
+      (atk.stance === 'southpaw' && !spec.isLeadSide);
+
     if (spec.zone === 'head') {
       def.headHp = Math.max(0, def.headHp - dmg);
+      const isSharpStrike =
+        spec.id === 'leadHook' ||
+        spec.id === 'rearHook' ||
+        spec.id === 'overhand' ||
+        spec.id === 'leadUppercut' ||
+        spec.id === 'rearUppercut' ||
+        spec.id === 'spinningBackfist' ||
+        spec.id === 'headKick' ||
+        spec.id === 'leadHeadKick';
+      const sharpnessMult = isSharpStrike ? 1.55 : spec.id === 'jab' ? 0.72 : 1.05;
+      const lowHeadBoost = def.headHp / Math.max(1, def.maxHeadHp) < 0.72 ? 1.38 : 1.0;
+      const cutGain =
+        (dmg / 95) *
+        sharpnessMult *
+        lowHeadBoost *
+        (isVulnerabilityHit ? 1.35 : 1.0);
+      def.headCutSeverity = clamp(def.headCutSeverity + cutGain, 0, 1);
+      if (def.bleedSide === 0) {
+        def.bleedSide = hitFromLeft ? -1 : 1;
+      }
     } else if (spec.zone === 'body') {
       def.bodyHp = Math.max(0, def.bodyHp - dmg);
       def.stamina = Math.max(0, def.stamina - dmg * 0.55);
+      def.bodyBruiseSeverity = clamp(
+        def.bodyBruiseSeverity + (dmg / 110) * 1.15,
+        0,
+        1,
+      );
     } else {
       def.legHp = Math.max(0, def.legHp - dmg);
+      def.bodyBruiseSeverity = clamp(
+        def.bodyBruiseSeverity + (dmg / 140) * 0.85,
+        0,
+        1,
+      );
     }
+
+    const activeCutSeverity =
+      spec.zone === 'head' ? def.headCutSeverity : def.bodyBruiseSeverity;
 
     atk.strikesLanded += 1;
     if (spec.zone === 'head') atk.headLanded += 1;
@@ -1352,17 +1400,17 @@ export function stepBout(
 
     if (lethal) {
       def.knockdowns += 1;
-      const koFromLeft =
-        (atk.stance === 'orthodox' && spec.isLeadSide) ||
-        (atk.stance === 'southpaw' && !spec.isLeadSide);
       if (def.knockdowns >= 2 || def.headHp <= 0 || def.stunMeter >= 45) {
+        if (spec.zone === 'head') {
+          def.headCutSeverity = clamp(Math.max(def.headCutSeverity, 0.58) + 0.18, 0, 1);
+        }
         def.action = 'ko';
         def.actionTime = 0;
         def.actionDuration = 3.2;
         def.currentStrike = null;
         def.guard = 'none';
         def.hitReactZone = spec.zone;
-        def.hitReactSide = koFromLeft ? -1 : 1;
+        def.hitReactSide = hitFromLeft ? -1 : 1;
         def.hitReactIntensity = 1.25;
         def.koStyle =
           spec.zone !== 'head' ||
@@ -1397,6 +1445,7 @@ export function stepBout(
           damage: dmg,
           isCounter: isVulnerabilityHit,
           isHeavy: true,
+          cutSeverity: def.headCutSeverity,
           hitPosition: hitPos,
         });
         events.push({
@@ -1405,6 +1454,7 @@ export function stepBout(
           defenderIndex: def.index,
           strikeId: spec.id,
           zone: spec.zone,
+          cutSeverity: def.headCutSeverity,
           hitPosition: hitPos,
         });
         return events;
@@ -1427,6 +1477,7 @@ export function stepBout(
           zone: spec.zone,
           damage: dmg,
           isHeavy: true,
+          cutSeverity: activeCutSeverity,
           hitPosition: hitPos,
         });
         continue;
@@ -1458,13 +1509,11 @@ export function stepBout(
         defenderIndex: def.index,
         strikeId: spec.id,
         zone: spec.zone,
+        cutSeverity: activeCutSeverity,
         hitPosition: hitPos,
       });
     } else if (def.action !== 'stunned') {
       if (isHeavy || def.action === 'idle' || caughtLeaning) {
-        const hitFromLeft =
-          (atk.stance === 'orthodox' && spec.isLeadSide) ||
-          (atk.stance === 'southpaw' && !spec.isLeadSide);
         def.action = 'hitReact';
         def.actionTime = 0;
         def.actionDuration = isHeavy ? 0.28 : 0.19;
@@ -1494,6 +1543,7 @@ export function stepBout(
       damage: dmg,
       isCounter: isVulnerabilityHit,
       isHeavy,
+      cutSeverity: activeCutSeverity,
       hitPosition: hitPos,
     });
   }

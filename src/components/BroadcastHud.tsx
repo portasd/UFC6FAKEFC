@@ -24,6 +24,9 @@ export interface HudDomRefs {
   calloutEl: HTMLDivElement | null;
   comboEl: HTMLDivElement | null;
   rockedFlashEl: HTMLDivElement | null;
+  redCutBadge: HTMLDivElement | null;
+  blueCutBadge: HTMLDivElement | null;
+  bloodVignetteEl: HTMLDivElement | null;
 }
 
 export function syncHudDom(refs: HudDomRefs, bout: BoutState) {
@@ -84,6 +87,37 @@ export function syncHudDom(refs: HudDomRefs, bout: BoutState) {
       refs.rockedFlashEl.style.opacity = (fade * pulse * 0.94).toFixed(3);
     } else {
       refs.rockedFlashEl.style.opacity = '0';
+    }
+  }
+
+  if (refs.redCutBadge) {
+    const sev = r.headCutSeverity;
+    if (sev >= 0.25) {
+      refs.redCutBadge.style.opacity = '1';
+      const label = sev >= 0.72 ? 'HEAVY BLEED' : 'CUT';
+      if (refs.redCutBadge.textContent !== label) refs.redCutBadge.textContent = label;
+    } else {
+      refs.redCutBadge.style.opacity = '0';
+    }
+  }
+
+  if (refs.blueCutBadge) {
+    const sev = b.headCutSeverity;
+    if (sev >= 0.25) {
+      refs.blueCutBadge.style.opacity = '1';
+      const label = sev >= 0.72 ? 'HEAVY BLEED' : 'CUT';
+      if (refs.blueCutBadge.textContent !== label) refs.blueCutBadge.textContent = label;
+    } else {
+      refs.blueCutBadge.style.opacity = '0';
+    }
+  }
+
+  if (refs.bloodVignetteEl) {
+    if (r.headCutSeverity >= 0.42) {
+      const intensity = Math.min(0.42, (r.headCutSeverity - 0.38) * 0.68);
+      refs.bloodVignetteEl.style.opacity = intensity.toFixed(3);
+    } else {
+      refs.bloodVignetteEl.style.opacity = '0';
     }
   }
 }
@@ -164,6 +198,19 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
 }) => {
   return (
     <>
+      {/* Subtle Crimson Screen-Edge Bleed Vignette */}
+      <div
+        ref={(el) => {
+          hudRefs.current.bloodVignetteEl = el;
+        }}
+        aria-hidden="true"
+        className="fixed inset-0 z-10 pointer-events-none transition-opacity duration-200"
+        style={{
+          opacity: 0,
+          background:
+            'radial-gradient(ellipse at 50% 50%, rgba(120, 8, 12, 0) 56%, rgba(135, 10, 14, 0.55) 86%, rgba(92, 4, 8, 0.88) 100%)',
+        }}
+      />
       {/* Prolonged Orange-to-Crimson Red-Edge Rocked Screen Impact Flash */}
       <div
         ref={(el) => {
@@ -238,10 +285,18 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
             </div>
 
             {/* Crimson Nameplate */}
-            <div className="bg-gradient-to-r from-[#9e1a1a] via-[#7f1313] to-[#3b0c0c]/90 px-2 sm:px-2.5 py-0.5 border-l-2 border-[#ff5640]">
+            <div className="bg-gradient-to-r from-[#9e1a1a] via-[#7f1313] to-[#3b0c0c]/90 px-2 sm:px-2.5 py-0.5 border-l-2 border-[#ff5640] flex items-center justify-between gap-1.5">
               <span className="font-display font-bold tracking-wider text-xs sm:text-base text-white uppercase hud-text-stroke block truncate">
                 {redName}
               </span>
+              <div
+                ref={(el) => {
+                  hudRefs.current.redCutBadge = el;
+                }}
+                className="shrink-0 px-1.5 py-0.5 bg-[#4a0408]/90 border border-[#ff3d4d]/70 text-[#ff8793] font-display font-bold text-[9px] sm:text-[10px] tracking-widest uppercase transition-opacity duration-150 opacity-0"
+              >
+                CUT
+              </div>
             </div>
           </div>
         </div>
@@ -351,8 +406,16 @@ export const BroadcastHud: React.FC<BroadcastHudProps> = ({
             </div>
 
             {/* Blue Nameplate */}
-            <div className="bg-gradient-to-l from-[#18529c] via-[#133e77] to-[#0a1d38]/90 px-2 sm:px-2.5 py-0.5 border-r-2 border-[#4ea2ff] text-right">
-              <span className="font-display font-bold tracking-wider text-xs sm:text-base text-white uppercase hud-text-stroke block truncate">
+            <div className="bg-gradient-to-l from-[#18529c] via-[#133e77] to-[#0a1d38]/90 px-2 sm:px-2.5 py-0.5 border-r-2 border-[#4ea2ff] flex items-center justify-between gap-1.5">
+              <div
+                ref={(el) => {
+                  hudRefs.current.blueCutBadge = el;
+                }}
+                className="shrink-0 px-1.5 py-0.5 bg-[#4a0408]/90 border border-[#ff3d4d]/70 text-[#ff8793] font-display font-bold text-[9px] sm:text-[10px] tracking-widest uppercase transition-opacity duration-150 opacity-0"
+              >
+                CUT
+              </div>
+              <span className="font-display font-bold tracking-wider text-xs sm:text-base text-white uppercase hud-text-stroke block truncate ml-auto">
                 {blueName}
               </span>
             </div>

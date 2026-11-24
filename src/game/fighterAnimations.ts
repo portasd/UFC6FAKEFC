@@ -701,21 +701,27 @@ export function getStrikeKeyframePose(
     return out;
   }
 
-  // Authentic Muay Thai / UFC Multi-Phase Roundhouse Kick:
-  // 1. Base pivot & knee chamber -> 2. Hip turnover -> 3. Shin whip & arm counter-swing -> 4. Re-chamber -> 5. Touchdown
+  // Authentic Muay Thai / UFC Multi-Phase Kicks:
+  // Specialized mechanics for Low/Calf Chops, Lead Switch Kicks, Body Roundhouses, and High Head Kicks
   const isHigh = strikeId === 'headKick' || strikeId === 'leadHeadKick';
   const isBody = strikeId === 'bodyKick' || strikeId === 'rearBodyKick';
+  const isLow = strikeId === 'legKick' || strikeId === 'rearLegKick';
+  const isSwitchKick = strikeId === 'bodyKick' || strikeId === 'leadHeadKick';
   const kickLeft = useLeft;
   // dir = -1 when kicking with Left (-X) leg, +1 when kicking with Right (+X) leg
   const dir = kickLeft ? -1 : 1;
 
-  // Height on kicking thigh abduction & flexion after hip turns sideways
-  const thighSideLift = dir * (isHigh ? 1.56 : isBody ? 1.24 : 0.72);
-  const thighFwdAngle = isHigh ? -0.58 : isBody ? -0.44 : -0.3;
-  // Counter-balance lean toward the standing leg (opposite dir: -dir * rz turns torso away)
-  const torsoSideLean = -dir * (isHigh ? 0.44 : isBody ? 0.32 : 0.16);
-  // Pelvis turns toward the standing leg (-dir * Y) so kicking hip opens directly at target
-  const hipTurnYaw = -dir * 1.12;
+  // Height & forward arc on kicking thigh after hip turns sideways
+  const thighSideLift = dir * (isHigh ? 1.6 : isBody ? 1.32 : 0.84);
+  const thighFwdPeak = isHigh ? -0.88 : isBody ? -0.74 : -0.62;
+  const thighFwdFollow = isHigh ? -1.04 : isBody ? -0.9 : -0.8;
+  // Counter-balance lean toward the standing leg
+  const torsoSideLean = -dir * (isHigh ? 0.48 : isBody ? 0.36 : 0.22);
+  // Pelvis turns toward the standing leg (-dir * Y) so kicking hip opens directly through target
+  const hipTurnYaw = -dir * (isHigh ? 1.28 : isBody ? 1.22 : 1.02);
+  // Low kicks sink weight into standing knee; high kicks rise tall onto ball of standing foot
+  const pelvisElevOffset = isHigh ? 0.025 : isBody ? -0.015 : -0.072;
+  const standKneeBend = isHigh ? 0.14 : isBody ? 0.22 : 0.38;
 
   const makeKickFrame = (
     liftFraction: number,
@@ -723,41 +729,65 @@ export function getStrikeKeyframePose(
     kneeBend: number,
     armWhip: number,
     plantPivot: number,
+    sweepFwdAngle = thighFwdPeak,
+    yawExtra = 0,
   ): Partial<PoseAngles> => {
     const p: Partial<PoseAngles> = {
-      pelvisY: base.pelvisY - 0.03 * liftFraction,
-      pelvisZ: 0.08 * hipTurnFraction,
-      pelvisRot: [0, lerp(base.pelvisRot[1], hipTurnYaw, hipTurnFraction), torsoSideLean * hipTurnFraction],
-      abdomenRot: [-0.08 * hipTurnFraction, -dir * 0.18 * hipTurnFraction, torsoSideLean * 0.35 * hipTurnFraction],
-      chestRot: [-0.14 * hipTurnFraction, -dir * 0.16 * hipTurnFraction, torsoSideLean * 0.42 * hipTurnFraction],
-      headRot: [-0.1, dir * 0.78 * hipTurnFraction, -torsoSideLean * 0.72 * hipTurnFraction],
+      pelvisY: base.pelvisY + pelvisElevOffset * liftFraction,
+      pelvisZ: (isLow ? 0.1 : 0.085) * hipTurnFraction,
+      pelvisRot: [
+        isHigh ? -0.08 * hipTurnFraction : isLow ? 0.1 * hipTurnFraction : 0,
+        lerp(base.pelvisRot[1], hipTurnYaw + yawExtra, hipTurnFraction),
+        torsoSideLean * hipTurnFraction,
+      ],
+      abdomenRot: [
+        (isLow ? 0.14 : -0.1) * hipTurnFraction,
+        -dir * 0.22 * hipTurnFraction,
+        torsoSideLean * 0.36 * hipTurnFraction,
+      ],
+      chestRot: [
+        (isLow ? 0.1 : -0.15) * hipTurnFraction,
+        -dir * 0.2 * hipTurnFraction,
+        torsoSideLean * 0.44 * hipTurnFraction,
+      ],
+      headRot: [
+        -0.1,
+        dir * 0.84 * hipTurnFraction,
+        -torsoSideLean * 0.74 * hipTurnFraction,
+      ],
     };
 
     const kickHip: [number, number, number] = [
-      lerp(kickLeft ? base.hipL[0] : base.hipR[0], thighFwdAngle, liftFraction),
-      lerp(0, -dir * 0.36, hipTurnFraction),
+      lerp(kickLeft ? base.hipL[0] : base.hipR[0], sweepFwdAngle, liftFraction),
+      lerp(0, -dir * 0.42, hipTurnFraction),
       lerp(0, thighSideLift, liftFraction),
     ];
     const kickKnee: [number, number, number] = [kneeBend, 0, 0];
-    const kickAnkle: [number, number, number] = [0.46 * liftFraction, 0, 0];
+    // Plantarflex ankle cleanly so shin/instep strikes rather than toes
+    const kickAnkle: [number, number, number] = [0.58 * liftFraction, 0, 0];
 
     const standHip: [number, number, number] = [
-      -0.12 * plantPivot,
-      dir * 0.48 * plantPivot,
+      -0.14 * plantPivot,
+      dir * 0.6 * plantPivot,
       -dir * 0.06,
     ];
-    const standKnee: [number, number, number] = [0.18, 0, 0];
-    const standAnkle: [number, number, number] = [-0.26 * plantPivot, -dir * 0.48 * plantPivot, 0];
+    const standKnee: [number, number, number] = [standKneeBend, 0, 0];
+    const standAnkle: [number, number, number] = [
+      (isHigh ? -0.36 : -0.26) * plantPivot,
+      -dir * 0.56 * plantPivot,
+      0,
+    ];
 
     const whipShoulder: [number, number, number] = [
-      lerp(-0.9, 0.72, armWhip),
+      lerp(-0.92, isHigh ? 0.84 : 0.76, armWhip),
       0,
-      lerp(dir * 0.2, dir * 0.88, armWhip),
+      lerp(dir * 0.2, dir * 0.96, armWhip),
     ];
-    const whipElbow: [number, number, number] = [lerp(-1.5, -0.22, armWhip), 0, 0];
+    const whipElbow: [number, number, number] = [lerp(-1.55, -0.18, armWhip), 0, 0];
 
-    const guardShoulder: [number, number, number] = [-1.26, -dir * 0.28, -dir * 0.18];
-    const guardElbow: [number, number, number] = [-2.14, 0, 0];
+    // Non-kicking hand stays clamped tightly to temple/jaw
+    const guardShoulder: [number, number, number] = [-1.3, -dir * 0.28, -dir * 0.16];
+    const guardElbow: [number, number, number] = [-2.18, 0, 0];
 
     if (kickLeft) {
       p.hipL = kickHip;
@@ -785,24 +815,65 @@ export function getStrikeKeyframePose(
     return p;
   };
 
-  const fChamber = makeKickFrame(0.68, 0.52, 1.32, 0.28, 0.65);
-  const fTurnOver = makeKickFrame(0.95, 0.94, 1.05, 0.72, 0.95);
-  const fWhipPeak = makeKickFrame(1.0, 1.0, 0.06, 1.0, 1.0);
-  const fReChamber = makeKickFrame(0.58, 0.56, 1.15, 0.42, 0.6);
+  // Switch-step pre-load for lead switch body/head kicks
+  const fSwitch: Partial<PoseAngles> = {
+    pelvisY: base.pelvisY + 0.028,
+    pelvisRot: [0.06, base.pelvisRot[1] - dir * 0.42, -torsoSideLean * 0.18],
+    chestRot: [0.08, -dir * 0.12, 0],
+    headRot: [-0.14, dir * 0.15, 0],
+    ...(kickLeft
+      ? {
+          hipL: [0.24, -0.14, -0.09],
+          kneeL: [0.46, 0, 0],
+          ankleL: [-0.24, 0, 0],
+          hipR: [-0.32, 0.16, 0.09],
+          kneeR: [0.42, 0, 0],
+        }
+      : {
+          hipR: [0.24, 0.14, 0.09],
+          kneeR: [0.46, 0, 0],
+          ankleR: [-0.24, 0, 0],
+          hipL: [-0.32, -0.16, -0.09],
+          kneeL: [0.42, 0, 0],
+        }),
+  };
 
-  return sampleKeyframeTrack(
-    base,
-    [
-      { t: 0, pose: {} },
-      { t: wEnd * 0.62, ease: 'cubicInOut', pose: fChamber },
-      { t: wEnd * 0.96, ease: 'cubicOut', pose: fTurnOver },
-      { t: (wEnd + aEnd) * 0.55, ease: 'cubicOut', pose: fWhipPeak },
-      { t: aEnd + 0.02, ease: 'linear', pose: fWhipPeak },
-      { t: aEnd + (1 - aEnd) * 0.45, ease: 'cubicIn', pose: fReChamber },
-      { t: 1, ease: 'cubicOut', pose: {} },
-    ],
-    progress,
+  const fChamber = makeKickFrame(0.72, 0.56, 1.46, 0.28, 0.68, thighFwdPeak * 0.72);
+  const fTurnOver = makeKickFrame(0.95, 0.94, 1.12, 0.74, 0.94, thighFwdPeak * 0.88);
+  const fWhipPeak = makeKickFrame(1.0, 1.0, isHigh ? 0.04 : 0.07, 1.0, 1.0, thighFwdPeak);
+  const fFollowThrough = makeKickFrame(
+    0.96,
+    1.0,
+    isHigh ? 0.1 : 0.14,
+    1.0,
+    1.0,
+    thighFwdFollow,
+    -dir * 0.14,
   );
+  const fReChamber = makeKickFrame(0.56, 0.54, 1.24, 0.4, 0.58, thighFwdPeak * 0.65);
+
+  const kickTrack: PoseKeyframe[] = isSwitchKick
+    ? [
+        { t: 0, pose: {} },
+        { t: wEnd * 0.34, ease: 'cubicOut', pose: fSwitch },
+        { t: wEnd * 0.68, ease: 'cubicInOut', pose: fChamber },
+        { t: wEnd * 0.97, ease: 'cubicOut', pose: fTurnOver },
+        { t: (wEnd + aEnd) * 0.54, ease: 'cubicOut', pose: fWhipPeak },
+        { t: aEnd + 0.045, ease: 'cubicOut', pose: fFollowThrough },
+        { t: aEnd + (1 - aEnd) * 0.46, ease: 'cubicIn', pose: fReChamber },
+        { t: 1, ease: 'cubicOut', pose: {} },
+      ]
+    : [
+        { t: 0, pose: {} },
+        { t: wEnd * 0.62, ease: 'cubicInOut', pose: fChamber },
+        { t: wEnd * 0.96, ease: 'cubicOut', pose: fTurnOver },
+        { t: (wEnd + aEnd) * 0.55, ease: 'cubicOut', pose: fWhipPeak },
+        { t: aEnd + 0.045, ease: 'cubicOut', pose: fFollowThrough },
+        { t: aEnd + (1 - aEnd) * 0.45, ease: 'cubicIn', pose: fReChamber },
+        { t: 1, ease: 'cubicOut', pose: {} },
+      ];
+
+  return sampleKeyframeTrack(base, kickTrack, progress);
 }
 
 /**

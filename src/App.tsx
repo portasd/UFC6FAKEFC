@@ -117,6 +117,9 @@ export default function App() {
     calloutEl: null,
     comboEl: null,
     rockedFlashEl: null,
+    redCutBadge: null,
+    blueCutBadge: null,
+    bloodVignetteEl: null,
   });
 
   // Sync body state attribute & live control settings
@@ -432,12 +435,49 @@ export default function App() {
               const dx = def.x - atk.x;
               const dz = def.z - atk.z;
               const len = Math.hypot(dx, dz) || 1;
+              const nx = dx / len;
+              const nz = dz / len;
               scene.sweatPool.spawnBurst(
                 ev.hitPosition,
-                dx / len,
+                nx,
                 dz / len,
                 ev.isHeavy ? 26 : 12,
               );
+              const cutSev = ev.cutSeverity ?? def.headCutSeverity;
+              if (
+                ev.zone === 'head' ||
+                ev.isHeavy ||
+                cutSev >= 0.14 ||
+                ev.type === 'knockdown'
+              ) {
+                const bloodCount =
+                  ev.type === 'knockdown'
+                    ? 24
+                    : ev.zone === 'head'
+                      ? ev.isHeavy
+                        ? 22
+                        : 11
+                      : 8;
+                scene.bloodPool.spawnBurst(
+                  ev.hitPosition,
+                  nx,
+                  nz,
+                  bloodCount,
+                  ev.isHeavy ? 1.15 : 0.88,
+                );
+                if (
+                  ev.type === 'knockdown' ||
+                  (ev.zone === 'head' && (cutSev >= 0.18 || ev.isHeavy))
+                ) {
+                  scene.addMatBloodSplat(
+                    def.x + nx * 0.22,
+                    def.z + nz * 0.22,
+                    ev.type === 'knockdown' ? 0.56 : 0.34 + cutSev * 0.22,
+                    nx,
+                    nz,
+                  );
+                }
+              }
             }
             if (ev.type === 'knockdown') {
               audioRef.current.playCrowdRoar(0.95);
@@ -451,6 +491,23 @@ export default function App() {
             scene.addCameraTrauma(0.9);
             audioRef.current.playRoundBell(3);
             audioRef.current.playCrowdRoar(1.25);
+            const atk = bout.fighters[ev.attackerIndex];
+            const def = bout.fighters[ev.defenderIndex];
+            const dx = def.x - atk.x;
+            const dz = def.z - atk.z;
+            const len = Math.hypot(dx, dz) || 1;
+            const nx = dx / len;
+            const nz = dz / len;
+            if (ev.hitPosition) {
+              scene.bloodPool.spawnBurst(ev.hitPosition, nx, nz, 26, 1.25);
+            }
+            scene.addMatBloodSplat(
+              def.x + nx * 0.28,
+              def.z + nz * 0.28,
+              0.72,
+              nx,
+              nz,
+            );
           } else if (ev.type === 'roundEnd') {
             audioRef.current.playRoundBell(2);
           }

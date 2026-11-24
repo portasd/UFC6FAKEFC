@@ -117,3 +117,327 @@ test('bout state initializes cleanly for southpaw stance mirroring', () => {
   // Southpaw mirrors orthodox (-Y pelvis rotation advances right lead side)
   assert.ok(spPose.pelvisRot[1] < -0.3 || spPose.pelvisRot[1] > 0.3);
 });
+
+test('low legKick sinks into standing knee and drives horizontal shin chop', () => {
+  const base = getIdleGuardPose('orthodox', 0, 0, 0);
+  const lowWhip = getStrikeKeyframePose('rearLegKick', 'orthodox', 0.44, base);
+
+  // Standing left knee sinks deeply for power base while pelvis drops
+  assert.ok(lowWhip.kneeL[0] > 0.3, `Expected bent standing knee > 0.3, got ${lowWhip.kneeL[0]}`);
+  assert.ok(lowWhip.pelvisY < base.pelvisY, 'Low kick should lower center of gravity');
+  // Kicking right ankle plantarflexed to strike with shin/instep
+  assert.ok(lowWhip.ankleR[0] > 0.4);
+});
+
+test('lead switch bodyKick hops into switch step before turning left hip over', () => {
+  const base = getIdleGuardPose('orthodox', 0, 0, 0);
+  const switchStep = getStrikeKeyframePose('bodyKick', 'orthodox', 0.11, base);
+  const whip = getStrikeKeyframePose('bodyKick', 'orthodox', 0.44, base);
+  const follow = getStrikeKeyframePose('bodyKick', 'orthodox', 0.58, base);
+
+  // Switch hop lifts pelvis slightly and opens stance toward southpaw pre-load
+  assert.ok(switchStep.pelvisY > base.pelvisY, 'Switch step should elevate slightly during hop');
+  assert.ok(switchStep.pelvisRot[1] !== base.pelvisRot[1]);
+  // Left kicking leg turns hip over (+Y pelvis rotation for left leg) and sweeps through follow-through
+  assert.ok(whip.pelvisRot[1] > 0.8);
+  assert.ok(follow.hipL[0] <= whip.hipL[0] + 0.05, 'Follow-through should carry thigh through arc');
+});
+
+test('All 6 Mixamo FBX rigs load at 0.01 scale, attach unrigged segments to 11 bones, strip walk drift, and drive AnimationMixer', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const THREE = await import('three');
+  const { FBXLoader } = await import('three/examples/jsm/loaders/FBXLoader.js');
+  const {
+    MIXAMO_ANIMATION_SOURCES,
+    MIXAMO_KEY_BONE_NAMES,
+    MIXAMO_SCALE,
+    attachSegmentsToMixamoBones,
+    createMixamoRigController,
+    extractActiveMixamoClip,
+  } = await import('./mixamoFbxAnimator');
+
+  const loader = new FBXLoader();
+  const loadLocal = (localUrl: string) => {
+    const fileName = path.basename(localUrl);
+    const buf = fs.readFileSync(path.resolve(process.cwd(), 'public/assets/animations', fileName));
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    return loader.parse(ab, '');
+  };
+
+  const fbxMap = {
+    jabPunch: loadLocal(MIXAMO_ANIMATION_SOURCES.jabPunch.localUrl),
+    hookPunch: loadLocal(MIXAMO_ANIMATION_SOURCES.hookPunch.localUrl),
+    walkNeutral: loadLocal(MIXAMO_ANIMATION_SOURCES.walkNeutral.localUrl),
+    walkGuard: loadLocal(MIXAMO_ANIMATION_SOURCES.walkGuard.localUrl),
+    mmaKick: loadLocal(MIXAMO_ANIMATION_SOURCES.mmaKick.localUrl),
+    knockedOut: loadLocal(MIXAMO_ANIMATION_SOURCES.knockedOut.localUrl),
+  };
+
+  const clips = {
+    jabPunch: extractActiveMixamoClip(fbxMap.jabPunch, 'JabPunch', false),
+    hookPunch: extractActiveMixamoClip(fbxMap.hookPunch, 'HookPunch', false),
+    walkNeutral: extractActiveMixamoClip(fbxMap.walkNeutral, 'NeutralWalking', true),
+    walkGuard: extractActiveMixamoClip(fbxMap.walkGuard, 'WalkingGuardUp', true),
+    mmaKick: extractActiveMixamoClip(fbxMap.mmaKick, 'MmaHeadKick', false),
+    knockedOut: extractActiveMixamoClip(fbxMap.knockedOut, 'KnockedOut', false),
+  };
+
+  for (const [key, clip] of Object.entries(clips)) {
+    assert.ok(clip && clip.tracks.length > 0, `Expected valid clip for ${key}`);
+  }
+
+  const controller = createMixamoRigController({
+    templateRoot: fbxMap.mmaKick,
+    clips,
+  });
+
+  // Verify scale = 0.01 and placeholder Mixamo meshes hidden
+  assert.ok(Math.abs(controller.skeletonRoot.scale.x - MIXAMO_SCALE) < 1e-6);
+  controller.skeletonRoot.traverse((obj) => {
+    const mesh = obj as InstanceType<typeof THREE.Mesh>;
+    if (mesh.isMesh) {
+      assert.equal(mesh.visible, false, `Expected Mixamo placeholder mesh ${obj.name} hidden`);
+    }
+  });
+
+  // Attach unrigged fighter body segment meshes to all 11 Mixamo bones
+  const segMeshes = Object.fromEntries(
+    MIXAMO_KEY_BONE_NAMES.map((name) => [
+      name,
+      new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.1), new THREE.MeshStandardMaterial()),
+    ]),
+  );
+  const attached = attachSegmentsToMixamoBones(controller.skeletonRoot, segMeshes);
+  for (const boneName of MIXAMO_KEY_BONE_NAMES) {
+    assert.ok(attached.bones[boneName], `Missing bone ${boneName}`);
+    assert.ok(attached.wrappers[boneName], `Missing scale wrapper for ${boneName}`);
+    assert.equal(attached.anchors[boneName]?.children[0], segMeshes[boneName]);
+    assert.ok(Math.abs((attached.wrappers[boneName]?.scale.x ?? 0) - 100) < 1e-4);
+  }
+
+  // Verify Neutral Walking (LoopRepeat) runs in-place without forward root drift
+  controller.playWalkNeutral(1);
+  assert.equal(controller.actions.walkNeutral?.loop, THREE.LoopRepeat);
+  controller.update(0.4);
+  controller.skeletonRoot.updateMatrixWorld(true);
+  const walkHipsPos = new THREE.Vector3();
+  attached.bones.Hips?.getWorldPosition(walkHipsPos);
+  assert.ok(Math.abs(walkHipsPos.z) < 0.15, `Expected in-place walk without Z drift, got z=${walkHipsPos.z.toFixed(2)}`);
+
+  // Verify Walking with Guard Up (LoopRepeat)
+  controller.playWalkGuard(1);
+  assert.equal(controller.actions.walkGuard?.loop, THREE.LoopRepeat);
+  controller.update(0.25);
+
+  // Verify Jab Punch & Hook Punch (LoopOnce)
+  controller.triggerJabPunch(0.32);
+  assert.equal(controller.actions.jabPunch?.loop, THREE.LoopOnce);
+  assert.equal(controller.activeMode, 'jabPunch');
+  controller.update(0.16);
+
+  controller.triggerHookPunch(0.4);
+  assert.equal(controller.actions.hookPunch?.loop, THREE.LoopOnce);
+  assert.equal(controller.activeMode, 'hookPunch');
+  controller.update(0.2);
+
+  // Trigger Mma Kick (LoopOnce) and verify RightLeg segment moves upward visibly
+  controller.triggerMmaKick(0.6);
+  assert.equal(controller.kickAction?.loop, THREE.LoopOnce);
+  assert.equal(controller.activeMode, 'mmaKick');
+
+  controller.skeletonRoot.updateMatrixWorld(true);
+  const startFootPos = new THREE.Vector3();
+  segMeshes.RightLeg.getWorldPosition(startFootPos);
+
+  controller.update(0.24);
+  controller.skeletonRoot.updateMatrixWorld(true);
+  const midFootPos = new THREE.Vector3();
+  segMeshes.RightLeg.getWorldPosition(midFootPos);
+  assert.ok(
+    midFootPos.y > startFootPos.y + 0.15,
+    `Expected RightLeg mesh to lift during Mma Kick (${startFootPos.y.toFixed(2)} -> ${midFootPos.y.toFixed(2)})`,
+  );
+
+  // Trigger Knocked Out (LoopOnce, clampWhenFinished) and verify Head collapses toward canvas
+  controller.triggerKnockedOut();
+  assert.equal(controller.koAction?.loop, THREE.LoopOnce);
+  assert.equal(controller.koAction?.clampWhenFinished, true);
+  assert.equal(controller.activeMode, 'knockedOut');
+
+  for (let i = 0; i < 40; i++) {
+    controller.update(0.05);
+  }
+  controller.skeletonRoot.updateMatrixWorld(true);
+  const koHeadPos = new THREE.Vector3();
+  segMeshes.Head.getWorldPosition(koHeadPos);
+  assert.ok(
+    koHeadPos.y < 0.35,
+    `Expected Head segment to collapse to mat during Knocked Out, got y=${koHeadPos.y.toFixed(2)}`,
+  );
+  controller.dispose();
+});
+
+test('ConorMcgregr.fbx loads as a Mixamo SkinnedMesh with normalized weights and plays all 6 Mixamo animations', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const THREE = await import('three');
+  const { FBXLoader } = await import('three/examples/jsm/loaders/FBXLoader.js');
+  const {
+    CONOR_MODEL_SOURCE,
+    MIXAMO_ANIMATION_SOURCES,
+    buildConorModelTemplateFromFbx,
+    createConorMixamoController,
+    extractActiveMixamoClip,
+  } = await import('./mixamoFbxAnimator');
+
+  const g = globalThis as unknown as {
+    document?: unknown;
+    URL?: unknown;
+  };
+  const prevDoc = g.document;
+  const prevUrl = g.URL;
+  g.document = {
+    createElementNS: () => ({
+      addEventListener() {},
+      removeEventListener() {},
+      setAttribute() {},
+      style: {},
+    }),
+  };
+  g.URL = { createObjectURL: () => 'blob:mock' };
+
+  try {
+    const loader = new FBXLoader();
+    const parseFbx = (absPath: string) => {
+      const buf = fs.readFileSync(absPath);
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      return loader.parse(ab, '');
+    };
+
+    const conorPath = path.resolve(
+      process.cwd(),
+      'public',
+      CONOR_MODEL_SOURCE.localUrl.replace(/^\//, ''),
+    );
+    const conorFbx = parseFbx(conorPath);
+    const template = buildConorModelTemplateFromFbx(conorFbx);
+    assert.ok(template, 'Expected valid ConorModelTemplate');
+
+    const loadAnim = (localUrl: string) =>
+      parseFbx(path.resolve(process.cwd(), 'public/assets/animations', path.basename(localUrl)));
+
+    const jabFbx = loadAnim(MIXAMO_ANIMATION_SOURCES.jabPunch.localUrl);
+    const clips = {
+      jabPunch: extractActiveMixamoClip(jabFbx, 'JabPunch', false),
+      hookPunch: extractActiveMixamoClip(
+        loadAnim(MIXAMO_ANIMATION_SOURCES.hookPunch.localUrl),
+        'HookPunch',
+        false,
+      ),
+      walkNeutral: extractActiveMixamoClip(
+        loadAnim(MIXAMO_ANIMATION_SOURCES.walkNeutral.localUrl),
+        'NeutralWalking',
+        true,
+      ),
+      walkGuard: extractActiveMixamoClip(
+        loadAnim(MIXAMO_ANIMATION_SOURCES.walkGuard.localUrl),
+        'WalkingGuardUp',
+        true,
+      ),
+      mmaKick: extractActiveMixamoClip(
+        loadAnim(MIXAMO_ANIMATION_SOURCES.mmaKick.localUrl),
+        'MmaHeadKick',
+        false,
+      ),
+      knockedOut: extractActiveMixamoClip(
+        loadAnim(MIXAMO_ANIMATION_SOURCES.knockedOut.localUrl),
+        'KnockedOut',
+        false,
+      ),
+    };
+
+    const controller = createConorMixamoController(
+      { templateRoot: jabFbx, clips },
+      template,
+    );
+
+    const { skinnedMesh, displayRoot } = controller;
+    assert.equal(skinnedMesh.isSkinnedMesh, true);
+    assert.equal(skinnedMesh.castShadow, true);
+    assert.equal(skinnedMesh.frustumCulled, false);
+    assert.equal(controller.flashMaterials.length >= 1, true);
+
+    const wAttr = skinnedMesh.geometry.attributes.skinWeight as InstanceType<
+      typeof THREE.BufferAttribute
+    >;
+    assert.equal(wAttr.count, 150000);
+    for (let i = 0; i < wAttr.count; i += 250) {
+      const sum =
+        wAttr.getX(i) + wAttr.getY(i) + wAttr.getZ(i) + wAttr.getW(i);
+      assert.ok(Number.isFinite(sum) && Math.abs(sum - 1) < 1e-3);
+    }
+
+    // Exercise all 6 Mixamo animations on Conor's skinned rig
+    controller.playWalkGuard(1);
+    controller.update(0.25);
+    assert.equal(controller.activeMode, 'walkGuard');
+
+    controller.playWalkNeutral(1);
+    controller.update(0.25);
+    assert.equal(controller.activeMode, 'walkNeutral');
+
+    controller.triggerJabPunch(0.32);
+    controller.update(0.18);
+    assert.equal(controller.activeMode, 'jabPunch');
+
+    controller.triggerHookPunch(0.42);
+    controller.update(0.22);
+    assert.equal(controller.activeMode, 'hookPunch');
+
+    controller.triggerMmaKick(0.6);
+    controller.update(0.26);
+    assert.equal(controller.activeMode, 'mmaKick');
+    displayRoot.updateMatrixWorld(true);
+    skinnedMesh.skeleton.update();
+
+    const posAttr = skinnedMesh.geometry.attributes.position as InstanceType<
+      typeof THREE.BufferAttribute
+    >;
+    const vKick = new THREE.Vector3();
+    let maxKickFootY = 0;
+    for (let i = 0; i < posAttr.count; i += 3) {
+      vKick.fromBufferAttribute(posAttr, i);
+      if (vKick.x < -0.1 && vKick.y < 0.25) {
+        skinnedMesh.applyBoneTransform(i, vKick);
+        if (vKick.y > maxKickFootY) maxKickFootY = vKick.y;
+      }
+    }
+    assert.ok(
+      maxKickFootY > 0.75,
+      `Expected Conor skinned right foot vertices to kick high (>0.75m), got ${maxKickFootY.toFixed(2)}`,
+    );
+
+    controller.triggerKnockedOut();
+    for (let i = 0; i < 40; i++) controller.update(0.05);
+    assert.equal(controller.activeMode, 'knockedOut');
+    displayRoot.updateMatrixWorld(true);
+    skinnedMesh.skeleton.update();
+
+    const koHeadWorld = new THREE.Vector3();
+    controller.headBone?.getWorldPosition(koHeadWorld);
+    assert.ok(
+      koHeadWorld.y < 0.4,
+      `Expected Conor Head bone to drop to mat during Knocked Out, got y=${koHeadWorld.y.toFixed(2)}`,
+    );
+
+    controller.dispose();
+  } finally {
+    g.document = prevDoc;
+    g.URL = prevUrl;
+  }
+});
+
+
+
+

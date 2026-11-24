@@ -11,10 +11,17 @@ import {
   applyFighterPose,
   applyMainMenuHeroPose,
   applySelectShowcasePose,
+  BloodParticlePool,
   buildFighterRig,
+  getFighterHeadWorldPosition,
   JointMap,
+  setFighterHeadHidden,
   SweatParticlePool,
 } from './mocapRig';
+import {
+  preloadConorMcgregorModel,
+  preloadMixamoAnimations,
+} from './mixamoFbxAnimator';
 import { CameraPreset } from './controlSettings';
 
 function detectSoftwareWebGL(): boolean {
@@ -457,12 +464,56 @@ function buildOfficialFigure(isCameraman: boolean): THREE.Group {
   return g;
 }
 
+function createMatBloodSplatTexture(variant: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 128, 128);
+
+  const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 44);
+  grad.addColorStop(0, 'rgba(110, 6, 8, 0.94)');
+  grad.addColorStop(0.5, 'rgba(138, 10, 10, 0.78)');
+  grad.addColorStop(0.85, 'rgba(90, 6, 8, 0.25)');
+  grad.addColorStop(1, 'rgba(60, 4, 4, 0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(64, 64, 38, 28 + (variant % 2) * 8, variant * 0.7, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Satellite splatter drops & directional streaks
+  ctx.fillStyle = 'rgba(128, 8, 10, 0.82)';
+  for (let i = 0; i < 12; i++) {
+    const a = ((i * 1.9 + variant * 1.1) % (Math.PI * 2));
+    const dist = 24 + ((i * 19 + variant * 13) % 34);
+    const rx = 2.5 + ((i * 7) % 5);
+    const ry = 2.0 + ((i * 5) % 4);
+    ctx.beginPath();
+    ctx.ellipse(
+      64 + Math.cos(a) * dist,
+      64 + Math.sin(a) * dist,
+      rx,
+      ry,
+      a,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 export class OctagonSceneManager {
   public readonly isSoftwareGl: boolean;
   public readonly renderer: THREE.WebGLRenderer;
   public readonly scene: THREE.Scene;
   public readonly camera: THREE.PerspectiveCamera;
   public readonly sweatPool: SweatParticlePool;
+  public readonly bloodPool: BloodParticlePool;
 
   private container: HTMLElement;
   private rigRed: JointMap | null = null;
@@ -477,6 +528,10 @@ export class OctagonSceneManager {
   private boxingRingGroup: THREE.Group;
   private backyardGroup: THREE.Group;
   private indoorArenaGroup: THREE.Group;
+  private bloodDecalGroup: THREE.Group;
+  private bloodDecalMeshes: THREE.Mesh[] = [];
+  private bloodDecalCursor = 0;
+  private bleedDripTimers: [number, number] = [0, 0];
   private currentArena: ArenaType = 'octagon';
   private flashMeshes: THREE.Mesh[] = [];
   private showcaseGroup: THREE.Group;
@@ -565,6 +620,10 @@ export class OctagonSceneManager {
     this.coolFill.position.set(5.5, 4.5, -3.5);
     this.scene.add(this.coolFill);
 
+    // Preload Mixamo FBX skeletons & clips + Conor McGregor FBX character model asynchronously
+    void preloadMixamoAnimations();
+    void preloadConorMcgregorModel();
+
     // Build Octagon, Boxing Ring & Backyard Arenas
     this.octagonGroup = this.buildOctagon();
     this.scene.add(this.octagonGroup);
@@ -620,6 +679,38 @@ export class OctagonSceneManager {
 
     this.sweatPool = new SweatParticlePool();
     this.scene.add(this.sweatPool.points);
+
+    this.bloodPool = new BloodParticlePool();
+    this.scene.add(this.bloodPool.points);
+
+    // Pooled glossy mat blood splatter decals
+    this.bloodDecalGroup = new THREE.Group();
+    const splatGeo = new THREE.PlaneGeometry(1, 1);
+    const splatMats = [0, 1, 2].map((variant) => {
+      const tex = createMatBloodSplatTexture(variant);
+      const mat = new THREE.MeshStandardMaterial({
+        map: tex,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        roughness: 0.2,
+        metalness: 0.08,
+      });
+      this.disposableResources.push(tex, mat);
+      return mat;
+    });
+    this.disposableResources.push(splatGeo);
+    for (let i = 0; i < 96; i++) {
+      const m = new THREE.Mesh(splatGeo, splatMats[i % splatMats.length]);
+      m.rotation.x = -Math.PI / 2;
+      m.position.y = 0.008 + i * 0.00006;
+      m.visible = false;
+      this.bloodDecalGroup.add(m);
+      this.bloodDecalMeshes.push(m);
+    }
+    this.scene.add(this.bloodDecalGroup);
 
     if (!this.isSoftwareGl) {
       this.renderer.compile(this.scene, this.camera);
@@ -1480,16 +1571,66 @@ export class OctagonSceneManager {
     return group;
   }
 
+  public clearMatBlood() {
+    for (const m of this.bloodDecalMeshes) {
+      m.visible = false;
+    }
+    this.bloodDecalCursor = 0;
+  }
+
+  public addMatBloodSplat(
+    x: number,
+    z: number,
+    size = 0.28,
+    dirX = 0,
+    dirZ = 0,
+  ) {
+    let sx = x;
+    let sz = z;
+    if (this.currentArena === 'octagon') {
+      const r = Math.hypot(sx, sz);
+      const maxR = OCTAGON_RADIUS - 0.55;
+      if (r > maxR) {
+        sx = (sx / r) * maxR;
+        sz = (sz / r) * maxR;
+      }
+    } else {
+      const half =
+        (this.currentArena === 'boxingRing'
+          ? BOXING_RING_HALF_SIZE
+          : BACKYARD_HALF_SIZE) - 0.5;
+      sx = THREE.MathUtils.clamp(sx, -half, half);
+      sz = THREE.MathUtils.clamp(sz, -half, half);
+    }
+
+    const m = this.bloodDecalMeshes[this.bloodDecalCursor];
+    this.bloodDecalCursor =
+      (this.bloodDecalCursor + 1) % this.bloodDecalMeshes.length;
+    m.position.x = sx;
+    m.position.z = sz;
+    const stretch = Math.hypot(dirX, dirZ) > 0.2 ? 1.45 : 1.05;
+    m.scale.set(size * stretch, size * (0.85 + Math.random() * 0.35), 1);
+    m.rotation.z =
+      Math.hypot(dirX, dirZ) > 0.2
+        ? Math.atan2(dirZ, dirX)
+        : Math.random() * Math.PI * 2;
+    m.visible = true;
+  }
+
   public syncFighters(bout: BoutState) {
     if (this.rigRed) {
+      this.rigRed.mixamo?.dispose();
       this.scene.remove(this.rigRed.root);
     }
     if (this.rigBlue) {
+      this.rigBlue.mixamo?.dispose();
       this.scene.remove(this.rigBlue.root);
     }
     this.rigRed = buildFighterRig(bout.fighters[0].profile, 'red');
     this.rigBlue = buildFighterRig(bout.fighters[1].profile, 'blue');
     this.scene.add(this.rigRed.root, this.rigBlue.root);
+    this.clearMatBlood();
+    this.bleedDripTimers = [0, 0];
   }
 
   public addCameraTrauma(amount: number) {
@@ -1560,13 +1701,13 @@ export class OctagonSceneManager {
       !isSelect &&
       bout.koWinnerIndex === null;
 
+    this.bloodDecalGroup.visible = !isMenu && !isSetup && !isSelect;
+
     if (this.rigRed && this.rigBlue) {
       this.rigRed.root.visible = !isSetup;
       this.rigBlue.root.visible = !isMenu && !isSetup;
-      this.rigRed.head.visible = !hideRedHead;
-      this.rigRed.neck.visible = !hideRedHead;
-      this.rigBlue.head.visible = true;
-      this.rigBlue.neck.visible = true;
+      setFighterHeadHidden(this.rigRed, hideRedHead);
+      setFighterHeadHidden(this.rigBlue, false);
       if (isMenu) {
         applyMainMenuHeroPose(this.rigRed, timeSec, dt);
       } else if (isSelect) {
@@ -1576,6 +1717,31 @@ export class OctagonSceneManager {
         const koWin = bout.koWinnerIndex;
         applyFighterPose(this.rigRed, bout.fighters[0], timeSec, dt, koWin === 0);
         applyFighterPose(this.rigBlue, bout.fighters[1], timeSec, dt, koWin === 1);
+
+        // Passive active-cut bleeding drips during fight
+        if (mode === 'playing') {
+          const pairs: Array<[0 | 1, JointMap]> = [
+            [0, this.rigRed],
+            [1, this.rigBlue],
+          ];
+          const headWorld = new THREE.Vector3();
+          for (const [idx, rig] of pairs) {
+            const f = bout.fighters[idx];
+            if (f.headCutSeverity >= 0.24 && f.action !== 'ko') {
+              this.bleedDripTimers[idx] -= dt;
+              if (this.bleedDripTimers[idx] <= 0) {
+                this.bleedDripTimers[idx] =
+                  0.18 + (1 - f.headCutSeverity) * 0.42;
+                getFighterHeadWorldPosition(rig, headWorld);
+                this.bloodPool.spawnDrip({
+                  x: headWorld.x,
+                  y: headWorld.y - 0.04,
+                  z: headWorld.z,
+                });
+              }
+            }
+          }
+        }
       }
     }
 
@@ -1590,6 +1756,9 @@ export class OctagonSceneManager {
     }
 
     this.sweatPool.update(dt);
+    this.bloodPool.update(dt, (x, z) =>
+      this.addMatBloodSplat(x, z, 0.14 + Math.random() * 0.14),
+    );
 
     // Referee tracks midpoint
     const f0 = bout.fighters[0];
@@ -1708,8 +1877,7 @@ export class OctagonSceneManager {
           f0.z,
         );
         if (this.rigRed) {
-          this.rigRed.root.updateMatrixWorld(true);
-          this.rigRed.head.getWorldPosition(headPos);
+          getFighterHeadWorldPosition(this.rigRed, headPos);
         }
         const fwdX = Math.sin(f0.facingYaw);
         const fwdZ = Math.cos(f0.facingYaw);
@@ -1891,7 +2059,10 @@ export class OctagonSceneManager {
     cancelAnimationFrame(this.frameId);
     clearTimeout(this.frameId);
     this.resizeObserver.disconnect();
+    this.rigRed?.mixamo?.dispose();
+    this.rigBlue?.mixamo?.dispose();
     this.sweatPool.dispose();
+    this.bloodPool.dispose();
     for (const r of this.disposableResources) {
       r.dispose();
     }
