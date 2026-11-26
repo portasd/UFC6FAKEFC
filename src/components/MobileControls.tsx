@@ -65,6 +65,9 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   const punchToggle = useRef<number>(0);
   const kickToggle = useRef<number>(0);
   const powerToggle = useRef<number>(0);
+  const bodyHookToggle = useRef<number>(0);
+  const headKickToggle = useRef<number>(0);
+  const lowKickToggle = useRef<number>(0);
 
   const evadePointerId = useRef<number | null>(null);
   const evadeOrigin = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -287,6 +290,33 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
     inputHub.triggerTouchStrike(limb, hookMod, bodyMod, hookMod && bodyMod);
   };
 
+  const handleQuickBodyHook = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveBtn('bodyHook');
+    const next = bodyHookToggle.current % 2;
+    bodyHookToggle.current += 1;
+    inputHub.triggerDirectStrike(next === 0 ? 'bodyHook' : 'rearBodyHook');
+  };
+
+  const handleQuickHeadKick = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveBtn('headKick');
+    const next = headKickToggle.current % 2;
+    headKickToggle.current += 1;
+    inputHub.triggerDirectStrike(next === 0 ? 'headKick' : 'leadHeadKick');
+  };
+
+  const handleQuickLowKick = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveBtn('lowKick');
+    const next = lowKickToggle.current % 2;
+    lowKickToggle.current += 1;
+    inputHub.triggerDirectStrike(next === 0 ? 'legKick' : 'rearLegKick');
+  };
+
   const handleBlockDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -445,6 +475,71 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
     };
   };
 
+  const renderQuickStrikeButtons = () => {
+    if (settings.showQuickStrikeButtons === false) return null;
+    const xAnchor = isMirrored ? { right: sp(-46) } : { left: sp(-46) };
+    return (
+      <>
+        <button
+          type="button"
+          onPointerDown={handleQuickHeadKick}
+          onPointerUp={() => setActiveBtn(null)}
+          onPointerCancel={() => setActiveBtn(null)}
+          aria-label="Head Kick"
+          className={`absolute w-12 h-12 rounded-full border-2 text-[9px] font-extrabold uppercase tracking-wider flex flex-col items-center justify-center bg-[#0a0c12]/65 cursor-pointer ${
+            activeBtn === 'headKick'
+              ? 'border-[#ff5d47] bg-[#d92626]/45 text-white'
+              : 'border-[#ff5d47]/70 bg-black/40 text-white'
+          }`}
+          style={customBtnStyle('headKick', {
+            top: sp(10),
+            ...xAnchor,
+          })}
+        >
+          <span className="leading-none">H.KICK</span>
+        </button>
+
+        <button
+          type="button"
+          onPointerDown={handleQuickBodyHook}
+          onPointerUp={() => setActiveBtn(null)}
+          onPointerCancel={() => setActiveBtn(null)}
+          aria-label="Body Hook"
+          className={`absolute w-12 h-12 rounded-full border-2 text-[9px] font-extrabold uppercase tracking-wider flex flex-col items-center justify-center bg-[#0a0c12]/65 cursor-pointer ${
+            activeBtn === 'bodyHook'
+              ? 'border-[#ff8e1c] bg-[#ff8e1c]/45 text-white'
+              : 'border-[#ff8e1c]/70 bg-black/40 text-white'
+          }`}
+          style={customBtnStyle('bodyHook', {
+            top: sp(78),
+            ...xAnchor,
+          })}
+        >
+          <span className="leading-none">B.HOOK</span>
+        </button>
+
+        <button
+          type="button"
+          onPointerDown={handleQuickLowKick}
+          onPointerUp={() => setActiveBtn(null)}
+          onPointerCancel={() => setActiveBtn(null)}
+          aria-label="Low Kick"
+          className={`absolute w-12 h-12 rounded-full border-2 text-[9px] font-extrabold uppercase tracking-wider flex flex-col items-center justify-center bg-[#0a0c12]/65 cursor-pointer ${
+            activeBtn === 'lowKick'
+              ? 'border-[#54a6ff] bg-[#2563eb]/45 text-white'
+              : 'border-[#54a6ff]/70 bg-black/40 text-white'
+          }`}
+          style={customBtnStyle('lowKick', {
+            bottom: sp(10),
+            ...xAnchor,
+          })}
+        >
+          <span className="leading-none">LOW.K</span>
+        </button>
+      </>
+    );
+  };
+
   const renderButtons = () => {
     if (settings.preset === 'fourLimb') {
       return (
@@ -579,6 +674,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           >
             SLIP
           </button>
+          {renderQuickStrikeButtons()}
         </>
       );
     }
@@ -730,6 +826,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
         >
           SLIP
         </button>
+        {renderQuickStrikeButtons()}
       </>
     );
   };

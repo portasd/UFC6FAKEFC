@@ -171,6 +171,10 @@ export class InputHub {
     );
   }
 
+  public triggerDirectStrike(strikeId: StrikeId) {
+    this.bufferStrike(strikeId);
+  }
+
   public triggerTouchEvade(evade: EvadeType, hold = false) {
     this.bufferEvade(evade);
     this.touchHeldEvade = hold ? evade : null;
@@ -182,12 +186,12 @@ export class InputHub {
 
   private bufferStrike(id: StrikeId) {
     this.bufferedStrike = id;
-    this.strikeBufferTimer = 0.18;
+    this.strikeBufferTimer = 0.22;
   }
 
   private bufferEvade(evade: EvadeType) {
     this.bufferedEvade = evade;
-    this.evadeBufferTimer = 0.16;
+    this.evadeBufferTimer = 0.2;
   }
 
   private resolveStrikeFromModifiers(

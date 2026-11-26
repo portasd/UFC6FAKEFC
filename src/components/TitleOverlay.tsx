@@ -744,7 +744,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             <div className="flex items-center justify-between gap-1 text-[9px] font-bold uppercase tracking-wider">
               <span className="text-[#ff5d47]">Red · You</span>
               <span className="font-mono-tabular text-white/65">
-                {redFighter.stats.power}/{redFighter.stats.speed}/{redFighter.stats.chin}
+                {redFighter.stats.power}/{redFighter.stats.speed}/{redFighter.stats.cardio}/{redFighter.stats.chin}
               </span>
             </div>
             <div className="flex items-center justify-between gap-1.5 mt-0.5">
@@ -772,7 +772,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
           >
             <div className="flex items-center justify-between gap-1 text-[9px] font-bold uppercase tracking-wider">
               <span className="font-mono-tabular text-white/65">
-                {blueFighter.stats.power}/{blueFighter.stats.speed}/{blueFighter.stats.chin}
+                {blueFighter.stats.power}/{blueFighter.stats.speed}/{blueFighter.stats.cardio}/{blueFighter.stats.chin}
               </span>
               <span className="text-[#54a6ff]">Blue · CPU</span>
             </div>
@@ -979,7 +979,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             <div className="flex items-center justify-between text-[11px] font-bold tracking-widest uppercase text-white/75 mb-1 px-0.5">
               <span className="text-[#ff5d47]">Red Corner · You</span>
               <span className="text-white/55 font-mono-tabular">
-                PWR {redFighter.stats.power} · SPD {redFighter.stats.speed} · CHN {redFighter.stats.chin}
+                PWR {redFighter.stats.power} · SPD {redFighter.stats.speed} · CRD {redFighter.stats.cardio} · CHN {redFighter.stats.chin}
               </span>
             </div>
             <div className="max-h-[192px] overflow-y-auto pr-0.5">
@@ -1158,7 +1158,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
           <div className="col-span-5">
             <div className="flex items-center justify-between text-[11px] font-bold tracking-widest uppercase text-white/75 mb-1 px-0.5">
               <span className="text-white/55 font-mono-tabular">
-                PWR {blueFighter.stats.power} · SPD {blueFighter.stats.speed} · CHN {blueFighter.stats.chin}
+                PWR {blueFighter.stats.power} · SPD {blueFighter.stats.speed} · CRD {blueFighter.stats.cardio} · CHN {blueFighter.stats.chin}
               </span>
               <span className="text-[#4ea2ff]">Blue Corner · Opponent</span>
             </div>

@@ -426,9 +426,14 @@ export function getStrikeDuration(
   speedRating: number,
   staminaRatio: number,
   extraSpeedMult = 1.0,
+  applyFatigue = true,
 ): number {
   const speedMult = 1 + (speedRating - 88) * 0.006;
-  const fatigueMult = staminaRatio < 0.25 ? 0.82 : 1.0;
-  const effectiveScale = Math.max(0.75, speedMult * fatigueMult * extraSpeedMult);
+  const clampedStam = Math.max(0, Math.min(1, staminaRatio));
+  const fatigueMult =
+    !applyFatigue || clampedStam >= 0.35
+      ? 1.0
+      : 0.78 + 0.22 * (clampedStam / 0.35);
+  const effectiveScale = Math.max(0.72, speedMult * fatigueMult * extraSpeedMult);
   return (strike.windup + strike.active + strike.recovery) / effectiveScale;
 }

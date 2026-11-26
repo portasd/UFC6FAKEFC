@@ -789,25 +789,41 @@ test('backyard arena clamps fighters inside square backyard pit bounds', () => {
   }
 });
 
-test('custom touch control layout helpers clamp bounds, mirror handedness, and detect overrides', () => {
-  const arcControls = getControlsForPreset('arc');
-  const fourLimbControls = getControlsForPreset('fourLimb');
-  assert.equal(arcControls.length, 7);
-  assert.equal(fourLimbControls.length, 9);
+test('custom touch control layout helpers clamp bounds, mirror handedness, toggle quick strikes, and detect overrides', () => {
+  const arcBase = getControlsForPreset('arc', false);
+  const fourLimbBase = getControlsForPreset('fourLimb', false);
+  assert.equal(arcBase.length, 7);
+  assert.equal(fourLimbBase.length, 9);
+
+  const arcWithQuick = getControlsForPreset('arc', true);
+  const fourLimbWithQuick = getControlsForPreset('fourLimb', true);
+  assert.equal(arcWithQuick.length, 10);
+  assert.equal(fourLimbWithQuick.length, 12);
+  assert.ok(arcWithQuick.includes('bodyHook') && arcWithQuick.includes('headKick') && arcWithQuick.includes('lowKick'));
 
   const stdPos = getDefaultTouchPositions('arc', 'standard');
   const leftPos = getDefaultTouchPositions('arc', 'leftHanded');
   assert.ok(stdPos.stick.x < 0.3 && leftPos.stick.x > 0.7, 'Left-handed layout should mirror stick to right side');
   assert.ok(stdPos.punch.x > 0.7 && leftPos.punch.x < 0.3, 'Left-handed layout should mirror strike cluster to left side');
+  assert.ok(stdPos.bodyHook.x > 0.5 && leftPos.bodyHook.x < 0.5, 'Left-handed layout should mirror quick-strike buttons');
 
   const clamped = clampTouchPosition({ x: -0.2, y: 0.99 });
   assert.equal(clamped.x, 0.06);
   assert.equal(clamped.y, 0.92);
 
   const defaults = cloneDefaultControlSettings();
+  assert.equal(defaults.touch.showQuickStrikeButtons, true);
   assert.equal(hasCustomTouchLayout(defaults.touch), false);
   defaults.touch.customPositions = { punch: { x: 0.82, y: 0.62 } };
   assert.equal(hasCustomTouchLayout(defaults.touch), true);
+
+  const hub = new InputHub();
+  hub.triggerDirectStrike('bodyHook');
+  assert.equal(hub.samplePlayerInput(1 / 60).requestedStrike, 'bodyHook');
+  hub.triggerDirectStrike('headKick');
+  assert.equal(hub.samplePlayerInput(1 / 60).requestedStrike, 'headKick');
+  hub.triggerDirectStrike('legKick');
+  assert.equal(hub.samplePlayerInput(1 / 60).requestedStrike, 'legKick');
 });
 
 test('expanded UFC roster has unique IDs and deep coverage across all 7 weight divisions', () => {
@@ -945,3 +961,218 @@ test('clean head and body impacts accumulate cuts, bleedSide, bruising, and emit
     'Expected defender bodyBruiseSeverity to increase after clean body strike',
   );
 });
+
+test('heavy head shots trigger Receiving An Uppercut animation probabilistically (not every time) and light jabs never trigger it', () => {
+  // Light jabs must never set useUppercutReact
+  for (let trial = 0; trial < 20; trial++) {
+    const bout = createBoutState(
+      getFighterById('holloway'),
+      getFighterById('oliveira'),
+      'champion',
+      true,
+    );
+    bout.fighters[0].x = -0.58;
+    bout.fighters[1].x = 0.58;
+    advanceSeconds(bout, 0.38, (t) => [
+      t < 0.02 ? { ...idleInput(), requestedStrike: 'jab' } : idleInput(),
+      idleInput(),
+    ]);
+    assert.equal(
+      bout.fighters[1].useUppercutReact,
+      false,
+      'Light jab should never trigger heavy uppercut reaction',
+    );
+  }
+
+  // Heavy head hooks/uppercuts trigger useUppercutReact on some hits, not all
+  let triggeredCount = 0;
+  const totalTrials = 45;
+  for (let trial = 0; trial < totalTrials; trial++) {
+    const bout = createBoutState(
+      getFighterById('pereira'),
+      getFighterById('oliveira'),
+      'champion',
+      true,
+    );
+    bout.fighters[0].x = -0.55;
+    bout.fighters[1].x = 0.55;
+    advanceSeconds(bout, 0.34, (t) => [
+      t < 0.02 ? { ...idleInput(), requestedStrike: 'rearUppercut' } : idleInput(),
+      idleInput(),
+    ]);
+    if (bout.fighters[1].useUppercutReact) triggeredCount += 1;
+  }
+  assert.ok(
+    triggeredCount > 0 && triggeredCount < totalTrials,
+    `Expected probabilistic useUppercutReact across heavy hits (got ${triggeredCount}/${totalTrials})`,
+  );
+});
+
+test('Arcade mode removes fatigue completely while Simulation keeps realistic McGregor vs Diaz cardio separation', () => {
+  const mcgregor = getFighterById('mcgregor');
+  const diaz = getFighterById('diaz');
+  assert.ok(diaz.stats.cardio > mcgregor.stats.cardio + 15);
+
+  const runExchange = (simulationMode: boolean) => {
+    const bout = createBoutState(mcgregor, diaz, 'champion', simulationMode);
+    // Keep out of range so both fighters throw identical bursts & whiff consistently, then rest
+    bout.fighters[0].x = -3.2;
+    bout.fighters[1].x = 3.2;
+
+    const conorStartStam = bout.fighters[0].stamina;
+    const diazStartStam = bout.fighters[1].stamina;
+
+    // Throw 6 heavy hooks/kicks spaced cleanly over 4.2s, then recover for 1.5s
+    const strikeTimes = [0.02, 0.72, 1.42, 2.12, 2.82, 3.52];
+    let idx = 0;
+    let lowestConorRatio = 1;
+    let lowestDiazRatio = 1;
+    const dt = 1 / 60;
+    const totalSteps = Math.round(5.7 / dt);
+    for (let s = 0; s < totalSteps; s++) {
+      const t = s * dt;
+      let strikeReq: FighterInput['requestedStrike'] = null;
+      if (idx < strikeTimes.length && t >= strikeTimes[idx]) {
+        strikeReq = idx % 2 === 0 ? 'overhand' : 'headKick';
+        idx++;
+      }
+      stepBout(
+        bout,
+        [
+          { ...idleInput(), requestedStrike: strikeReq },
+          { ...idleInput(), requestedStrike: strikeReq },
+        ],
+        dt,
+      );
+      lowestConorRatio = Math.min(
+        lowestConorRatio,
+        bout.fighters[0].stamina / bout.fighters[0].maxStamina,
+      );
+      lowestDiazRatio = Math.min(
+        lowestDiazRatio,
+        bout.fighters[1].stamina / bout.fighters[1].maxStamina,
+      );
+    }
+
+    return {
+      conorRatioEnd: bout.fighters[0].stamina / bout.fighters[0].maxStamina,
+      diazRatioEnd: bout.fighters[1].stamina / bout.fighters[1].maxStamina,
+      lowestConorRatio,
+      lowestDiazRatio,
+      conorMaxCeilingDrop: conorStartStam - bout.fighters[0].maxStamina,
+      diazMaxCeilingDrop: diazStartStam - bout.fighters[1].maxStamina,
+    };
+  };
+
+  const arc = runExchange(false);
+  const sim = runExchange(true);
+
+  // Arcade: zero fatigue gap, zero ceiling loss, and Conor does NOT tire more than Diaz
+  assert.ok(
+    arc.conorRatioEnd >= arc.diazRatioEnd - 0.01 && arc.conorRatioEnd > 0.55,
+    `Expected Conor not to fatigue below Diaz in Arcade, got ${arc.conorRatioEnd.toFixed(3)} vs ${arc.diazRatioEnd.toFixed(3)}`,
+  );
+  assert.equal(arc.conorMaxCeilingDrop, 0, 'Arcade mode must not shrink maxStamina');
+  assert.equal(arc.diazMaxCeilingDrop, 0, 'Arcade mode must not shrink maxStamina');
+
+  // Arcade: low stamina never slows down strikes or reduces strike damage
+  const fullStamArc = createBoutState(mcgregor, diaz, 'champion', false);
+  const lowStamArc = createBoutState(mcgregor, diaz, 'champion', false);
+  fullStamArc.fighters[0].x = -0.58;
+  fullStamArc.fighters[1].x = 0.58;
+  lowStamArc.fighters[0].x = -0.58;
+  lowStamArc.fighters[1].x = 0.58;
+  lowStamArc.fighters[0].stamina = 12;
+  const evFull = advanceSeconds(fullStamArc, 0.45, (t) => [
+    t < 0.02 ? { ...idleInput(), requestedStrike: 'rearHook' } : idleInput(),
+    idleInput(),
+  ]);
+  const evLow = advanceSeconds(lowStamArc, 0.45, (t) => [
+    t < 0.02 ? { ...idleInput(), requestedStrike: 'rearHook' } : idleInput(),
+    idleInput(),
+  ]);
+  const fullHit = evFull.find((e) => e.type === 'hit');
+  const lowHit = evLow.find((e) => e.type === 'hit');
+  assert.ok(fullHit && lowHit);
+  assert.ok(
+    Math.abs((fullHit.damage ?? 0) - (lowHit.damage ?? 0)) < 0.01,
+    'Arcade mode low stamina must deal full strike damage',
+  );
+  assert.equal(
+    fullStamArc.fighters[0].actionDuration,
+    lowStamArc.fighters[0].actionDuration,
+    'Arcade mode low stamina must not slow down strike speed',
+  );
+
+  // Simulation: dramatic, realistic cardio separation and ceiling fatigue on McGregor
+  assert.ok(
+    sim.lowestConorRatio < sim.lowestDiazRatio - 0.14,
+    `Expected Conor to gas much harder than Diaz in Simulation (${sim.lowestConorRatio.toFixed(2)} vs ${sim.lowestDiazRatio.toFixed(2)})`,
+  );
+  assert.ok(
+    sim.diazRatioEnd - sim.conorRatioEnd > 0.1,
+    `Expected Simulation cardio gap > 0.10, got ${(sim.diazRatioEnd - sim.conorRatioEnd).toFixed(3)}`,
+  );
+  assert.ok(
+    sim.conorMaxCeilingDrop > sim.diazMaxCeilingDrop,
+    `Expected Conor cumulative maxStamina drop (${sim.conorMaxCeilingDrop.toFixed(2)}) > Diaz (${sim.diazMaxCeilingDrop.toFixed(2)}) in Simulation`,
+  );
+});
+
+test('holding block prevents getting rocked even when blockHealth is exhausted or hit on body', () => {
+  const bout = createBoutState(
+    getFighterById('pereira'),
+    getFighterById('holloway'),
+  );
+  bout.fighters[0].x = -0.58;
+  bout.fighters[1].x = 0.58;
+  // Simulate defender holding block with depleted blockHealth and near-threshold stunMeter
+  bout.fighters[1].blockHealth = 2;
+  bout.fighters[1].stunMeter = 36;
+
+  const events = advanceSeconds(bout, 1.1, (t) => {
+    const req =
+      t < 0.02
+        ? 'overhand'
+        : t >= 0.52 && t < 0.55
+          ? 'bodyHook'
+          : null;
+    return [
+      { ...idleInput(), requestedStrike: req },
+      { ...idleInput(), guard: 'high' },
+    ];
+  });
+
+  assert.equal(
+    events.some((e) => e.type === 'stunned'),
+    false,
+    'Holding block must never allow defender to get rocked/stunned',
+  );
+  assert.notEqual(bout.fighters[1].action, 'stunned');
+  assert.equal(
+    bout.fighters[1].guard,
+    'high',
+    'Guard must remain raised while holding block even when blockHealth reaches 0',
+  );
+});
+
+test('evade chains fluidly into counter strike right after peak displacement', () => {
+  const bout = createBoutState(getFighterById('adesanya'), getFighterById('pereira'));
+  bout.fighters[0].x = -0.62;
+  bout.fighters[1].x = 0.62;
+
+  const events = advanceSeconds(bout, 0.48, (t) => [
+    t < 0.02
+      ? { ...idleInput(), requestedEvade: 'slipLeft' }
+      : t >= 0.22 && t < 0.26
+        ? { ...idleInput(), requestedStrike: 'cross' }
+        : idleInput(),
+    idleInput(),
+  ]);
+
+  assert.ok(
+    events.some((e) => e.type === 'strikeStart' && e.strikeId === 'cross'),
+    'Expected slipLeft to chain smoothly into counter cross',
+  );
+});
+

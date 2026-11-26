@@ -364,6 +364,7 @@ export default function App() {
     const unbindInputs = inputRef.current.bindListeners();
 
     let lastRoundSeen = 1;
+    let clapperRoundPlayed = 0;
     let lastControllerConnected = false;
 
     scene.startLoop((dt, elapsedSec) => {
@@ -406,6 +407,8 @@ export default function App() {
         for (const ev of events) {
           const strikeSpec = ev.strikeId ? STRIKES[ev.strikeId] : null;
           const isKick = Boolean(strikeSpec?.isKick);
+          const isLowKick =
+            ev.strikeId === 'legKick' || ev.strikeId === 'rearLegKick';
 
           if (ev.type === 'strikeStart') {
             audioRef.current.playWhoosh(
@@ -417,11 +420,25 @@ export default function App() {
           } else if (ev.type === 'lunge') {
             audioRef.current.playLunge();
           } else if (ev.type === 'blocked') {
-            audioRef.current.playImpact(0.35, true, false, isKick);
+            audioRef.current.playImpact(
+              0.35,
+              true,
+              false,
+              isKick,
+              ev.zone ?? 'head',
+              isLowKick,
+            );
           } else if (ev.type === 'hit' || ev.type === 'knockdown') {
             const dmg = ev.damage ?? 10;
             const weight = Math.min(1.5, dmg / 14);
-            audioRef.current.playImpact(weight, false, Boolean(ev.isCounter), isKick);
+            audioRef.current.playImpact(
+              weight,
+              false,
+              Boolean(ev.isCounter),
+              isKick,
+              ev.zone ?? 'head',
+              isLowKick,
+            );
             if (ev.isHeavy) {
               scene.addCameraTrauma(
                 ev.type === 'knockdown' ? 0.75 : ev.isCounter ? 0.54 : 0.44,
@@ -511,6 +528,16 @@ export default function App() {
           } else if (ev.type === 'roundEnd') {
             audioRef.current.playRoundBell(2);
           }
+        }
+
+        if (
+          bout.roundTimeRemaining <= 10.0 &&
+          bout.roundTimeRemaining > 9.0 &&
+          clapperRoundPlayed !== bout.round &&
+          bout.koWinnerIndex === null
+        ) {
+          clapperRoundPlayed = bout.round;
+          audioRef.current.playClapper();
         }
 
         if (bout.round !== lastRoundSeen) {
@@ -651,9 +678,22 @@ export default function App() {
           cameraPreset={controlSettings.cameraPreset}
           muted={muted}
           touchEnabled={touchControlsEnabled}
+          quickStrikesEnabled={
+            controlSettings.touch.showQuickStrikeButtons !== false
+          }
           onSelectCameraPreset={handleSelectCameraPreset}
           onToggleMute={toggleMute}
           onToggleTouchEnabled={() => setTouchControlsEnabled((prev) => !prev)}
+          onToggleQuickStrikes={() =>
+            setControlSettings((prev) => ({
+              ...prev,
+              touch: {
+                ...prev.touch,
+                showQuickStrikeButtons:
+                  prev.touch.showQuickStrikeButtons === false,
+              },
+            }))
+          }
           onResume={togglePause}
           onRestart={startFight}
           onReturnTitle={() => {

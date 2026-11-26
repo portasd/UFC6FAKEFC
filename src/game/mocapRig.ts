@@ -91,6 +91,8 @@ export interface JointMap {
     rightLegVisual: THREE.Group;
   };
   profileId: string;
+  corner: 'red' | 'blue';
+  conorShortsMaterial: THREE.MeshStandardMaterial;
   mixamo: MixamoRigController | null;
   mixamoAttached: boolean;
   customModelAttached: boolean;
@@ -120,6 +122,7 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 let cachedSoftShadowTex: THREE.CanvasTexture | null = null;
 let cachedSkinBumpTex: THREE.CanvasTexture | null = null;
 const _mixamoShadowVec = new THREE.Vector3();
+const _procFloorVec = new THREE.Vector3();
 
 interface LoadedFacePhoto {
   data: Uint8ClampedArray;
@@ -1878,98 +1881,441 @@ function createArmSkinTexture(profile: FighterProfile): THREE.CanvasTexture {
   return tex;
 }
 
-function createShortsTexture(profile: FighterProfile): THREE.CanvasTexture {
+interface UfcCornerPalette {
+  base: string;
+  deep: string;
+  bright: string;
+  bandAccent: string;
+  shieldBg: string;
+}
+
+function getUfcCornerPalette(corner: 'red' | 'blue'): UfcCornerPalette {
+  if (corner === 'red') {
+    return {
+      base: '#c4141d',
+      deep: '#750a10',
+      bright: '#e21f28',
+      bandAccent: '#381519',
+      shieldBg: '#cc161f',
+    };
+  }
+  return {
+    base: '#0a52aa',
+    deep: '#072d66',
+    bright: '#1669cf',
+    bandAccent: '#182940',
+    shieldBg: '#0c57b2',
+  };
+}
+
+function drawSerpentHalftone(
+  ctx: CanvasRenderingContext2D,
+  xStart: number,
+  xEnd: number,
+  yStart: number,
+  yEnd: number,
+  color: string,
+  density = 1,
+) {
+  ctx.save();
+  ctx.fillStyle = color;
+  const stepX = Math.max(9, Math.round(11 / density));
+  const stepY = Math.max(9, Math.round(11 / density));
+  for (let y = yStart; y <= yEnd; y += stepY) {
+    const vFade = 1 - Math.abs((y - (yStart + yEnd) * 0.5) / ((yEnd - yStart) * 0.55 + 1));
+    for (let x = xStart; x <= xEnd; x += stepX) {
+      const hFade = 1 - Math.abs((x - (xStart + xEnd) * 0.5) / ((xEnd - xStart) * 0.58 + 1));
+      const wave = 0.5 + 0.5 * Math.sin(x * 0.08 + y * 0.05) * Math.cos(x * 0.04 - y * 0.07);
+      const r = Math.max(0, (hFade * 0.65 + vFade * 0.35) * wave * 4.4);
+      if (r > 0.7) {
+        ctx.beginPath();
+        ctx.arc(x + ((y / stepY) % 2) * (stepX * 0.5), y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawDiagonalWhiteSlashes(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  topY: number,
+  len: number,
+  dir: -1 | 1,
+) {
+  ctx.save();
+  ctx.fillStyle = '#f8fafc';
+  // Primary upper chevron slash + secondary lower slash (matching Venum Fight Night shorts)
+  const drawBar = (ox: number, oy: number, w: number, h: number) => {
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(ox + w, oy);
+    ctx.lineTo(ox + w + dir * h * 0.42, oy + h);
+    ctx.lineTo(ox + dir * h * 0.42, oy + h);
+    ctx.closePath();
+    ctx.fill();
+  };
+  drawBar(cx - 5, topY, 8, len * 0.48);
+  drawBar(cx + dir * 13, topY + len * 0.14, 7, len * 0.44);
+  drawBar(cx + dir * (len * 0.14), topY + len * 0.54, 7.5, len * 0.42);
+  ctx.restore();
+}
+
+function drawVenumFangLogo(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  scale = 1,
+) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = '#ffffff';
+  // Stylized serpent fangs shield
+  ctx.beginPath();
+  ctx.moveTo(-14, -14);
+  ctx.lineTo(-4, -8);
+  ctx.lineTo(-5, 16);
+  ctx.lineTo(-12, 4);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(14, -14);
+  ctx.lineTo(4, -8);
+  ctx.lineTo(5, 16);
+  ctx.lineTo(12, 4);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(-4, -12);
+  ctx.lineTo(4, -12);
+  ctx.lineTo(0, 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawCryptoComHexagon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = Math.max(2, radius * 0.14);
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i - Math.PI / 6;
+    const px = Math.cos(a) * radius;
+    const py = Math.sin(a) * radius;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  // Inner geometric crest
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(-radius * 0.42, -radius * 0.35);
+  ctx.lineTo(radius * 0.42, -radius * 0.35);
+  ctx.lineTo(radius * 0.55, radius * 0.12);
+  ctx.lineTo(0, radius * 0.52);
+  ctx.lineTo(-radius * 0.55, radius * 0.12);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(-radius * 0.18, -radius * 0.08, radius * 0.36, radius * 0.24);
+  ctx.restore();
+}
+
+function drawFrontUfcBeltShield(
+  ctx: CanvasRenderingContext2D,
+  centerX: number,
+  topY: number,
+  width: number,
+  height: number,
+  pal: UfcCornerPalette,
+) {
+  ctx.save();
+  const hw = width * 0.5;
+  ctx.fillStyle = '#0a0b0e';
+  ctx.beginPath();
+  ctx.moveTo(centerX - hw - 5, topY);
+  ctx.lineTo(centerX + hw + 5, topY);
+  ctx.lineTo(centerX + hw * 0.78 + 4, topY + height * 0.84);
+  ctx.lineTo(centerX, topY + height + 5);
+  ctx.lineTo(centerX - hw * 0.78 - 4, topY + height * 0.84);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = pal.shieldBg;
+  ctx.beginPath();
+  ctx.moveTo(centerX - hw, topY + 2);
+  ctx.lineTo(centerX + hw, topY + 2);
+  ctx.lineTo(centerX + hw * 0.76, topY + height * 0.82);
+  ctx.lineTo(centerX, topY + height);
+  ctx.lineTo(centerX - hw * 0.76, topY + height * 0.82);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'italic 900 ' + Math.round(height * 0.56) + 'px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('UFC', centerX, topY + height * 0.48);
+  ctx.restore();
+}
+
+function createUfcWaistbandTexture(corner: 'red' | 'blue'): THREE.CanvasTexture {
+  const pal = getUfcCornerPalette(corner);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#141519';
+  ctx.fillRect(0, 0, 512, 128);
+
+  // Subtle woven serpent scale texture along black waistband
+  ctx.fillStyle = pal.bandAccent;
+  for (let x = 0; x < 512; x += 14) {
+    for (let y = 10; y < 118; y += 16) {
+      const n = Math.sin(x * 0.09 + y * 0.11);
+      if (n > 0.15) {
+        ctx.beginPath();
+        ctx.ellipse(x + ((y / 16) % 2) * 7, y, 5.5, 3.5, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // Elastic top seam
+  ctx.fillStyle = '#090a0d';
+  ctx.fillRect(0, 0, 512, 10);
+  ctx.fillRect(0, 118, 512, 10);
+
+  // Center front (u=0.5 when waistband.rotation.y = Math.PI) Red/Blue UFC trapezoid shield
+  drawFrontUfcBeltShield(ctx, 256, 4, 112, 116, pal);
+
+  // Back center (u=0 / 1) UFC badge accent
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.font = 'italic bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('UFC', 28, 72);
+  ctx.fillText('UFC', 484, 72);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function createUfcPelvisShortsTexture(corner: 'red' | 'blue'): THREE.CanvasTexture {
+  const pal = getUfcCornerPalette(corner);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, pal.base);
+  grad.addColorStop(0.65, pal.base);
+  grad.addColorStop(1, pal.deep);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 256);
+
+  // Dark halftone dragon/serpent graphic along upper hips/sides
+  drawSerpentHalftone(ctx, 90, 224, 12, 232, pal.deep, 1.15);
+  drawSerpentHalftone(ctx, 288, 422, 12, 232, pal.deep, 1.15);
+
+  // Athletic front seam / stitch line at u=0.5 (x=256)
+  ctx.strokeStyle = 'rgba(10,12,16,0.36)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(256, 20);
+  ctx.lineTo(256, 236);
+  ctx.stroke();
+
+  // Inner black crotch mesh gusset at lower front & lower back
+  ctx.fillStyle = '#111216';
+  ctx.beginPath();
+  ctx.moveTo(234, 256);
+  ctx.lineTo(256, 178);
+  ctx.lineTo(278, 256);
+  ctx.closePath();
+  ctx.fill();
+
+  // Outer upper hip white diagonal slash entry hints
+  drawDiagonalWhiteSlashes(ctx, 134, 88, 155, 1);
+  drawDiagonalWhiteSlashes(ctx, 378, 88, 155, -1);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function createUfcThighShortsTexture(
+  corner: 'red' | 'blue',
+  anatomicalSide: 'left' | 'right',
+): THREE.CanvasTexture {
+  const pal = getUfcCornerPalette(corner);
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = profile.appearance.shortsPrimaryHex;
+  const grad = ctx.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, pal.base);
+  grad.addColorStop(0.55, pal.bright);
+  grad.addColorStop(1, pal.deep);
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 512, 512);
 
-  const accent = profile.appearance.shortsAccentHex;
-  const pat = profile.appearance.shortsPattern;
+  // With cuffMesh.rotation.y = Math.PI:
+  // u=0.5 (256) is +Z FRONT; u=0.25 (128) is -X; u=0.75 (384) is +X
+  // Right leg (-X): outer = x=128..210, inner = x=340..430
+  // Left leg (+X): outer = x=302..384, inner = x=82..172
+  const outerCx = anatomicalSide === 'right' ? 148 : 364;
+  const innerCx = anatomicalSide === 'right' ? 384 : 128;
 
-  if (pat === 'floral') {
-    const colors = [accent, '#1f4e8c', '#d85c3a', '#2b6f4a'];
-    for (let i = 0; i < 48; i++) {
-      const cx = ((i * 97) % 480) + 16;
-      const cy = ((i * 151) % 460) + 40;
-      ctx.fillStyle = colors[i % colors.length];
-      for (let p = 0; p < 5; p++) {
-        const a = (p * Math.PI * 2) / 5;
-        ctx.beginPath();
-        ctx.ellipse(
-          cx + Math.cos(a) * 14,
-          cy + Math.sin(a) * 14,
-          10,
-          6,
-          a,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
-      }
-      ctx.fillStyle = '#f3d16b';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else if (pat === 'geometric') {
-    ctx.strokeStyle = 'rgba(255,255,255,0.72)';
-    ctx.lineWidth = 4;
-    for (let i = 0; i < 8; i++) {
-      ctx.beginPath();
-      ctx.moveTo(0, 80 + i * 52);
-      ctx.lineTo(256, 130 + i * 44);
-      ctx.lineTo(512, 80 + i * 52);
-      ctx.stroke();
-    }
-    ctx.fillStyle = accent;
-    ctx.fillRect(36, 220, 140, 14);
-    ctx.fillRect(336, 220, 140, 14);
-  } else if (pat === 'tribal') {
-    ctx.fillStyle = accent;
-    for (let y = 90; y < 480; y += 64) {
-      ctx.beginPath();
-      ctx.moveTo(20, y);
-      ctx.lineTo(130, y + 24);
-      ctx.lineTo(20, y + 48);
-      ctx.closePath();
-      ctx.fill();
+  // Dark halftone graphic along upper outer thigh
+  drawSerpentHalftone(ctx, outerCx - 70, outerCx + 75, 24, 310, pal.deep, 1.1);
 
-      ctx.beginPath();
-      ctx.moveTo(492, y);
-      ctx.lineTo(382, y + 24);
-      ctx.lineTo(492, y + 48);
-      ctx.closePath();
-      ctx.fill();
-    }
-  } else if (pat === 'stripes') {
-    ctx.fillStyle = accent;
-    ctx.fillRect(0, 0, 512, 48);
-    ctx.fillRect(42, 48, 28, 464);
-    ctx.fillRect(442, 48, 28, 464);
-  } else {
-    ctx.fillStyle = accent;
-    ctx.fillRect(0, 180, 512, 24);
+  // Inner-thigh black athletic stretch mesh gusset
+  ctx.fillStyle = '#111216';
+  ctx.fillRect(innerCx - 46, 0, 92, 512);
+
+  // White diagonal parallel Fight Night slashes along outer side
+  drawDiagonalWhiteSlashes(
+    ctx,
+    outerCx,
+    70,
+    310,
+    anatomicalSide === 'right' ? 1 : -1,
+  );
+
+  if (anatomicalSide === 'right') {
+    // Wearer's Right thigh: vertical white UFC + white crypto.com hexagon & text
+    ctx.save();
+    ctx.translate(outerCx + 28, 178);
+    ctx.rotate(Math.PI / 2);
     ctx.fillStyle = '#ffffff';
-    for (let x = 24; x < 500; x += 48) {
-      ctx.beginPath();
-      ctx.arc(x, 120, 10, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.font = 'italic 900 44px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('UFC', 0, 0);
+    ctx.restore();
+
+    drawCryptoComHexagon(ctx, outerCx + 36, 362, 34);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('crypto.com', outerCx + 36, 428);
+  } else {
+    // Wearer's Left thigh: crisp white Venum fang crest on outer thigh
+    drawVenumFangLogo(ctx, outerCx - 24, 305, 1.45);
   }
 
-  ctx.fillStyle = '#121316';
-  ctx.fillRect(0, 0, 512, 48);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 24px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('UFC', 256, 32);
+  // Subtle stitched hem trim at bottom
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.fillRect(0, 490, 512, 22);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function createConorUfcShortsTexture(corner: 'red' | 'blue'): THREE.CanvasTexture {
+  const pal = getUfcCornerPalette(corner);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+
+  // Vertical UV: y=0 (top of canvas = waistband), y=512 (bottom = thigh hem)
+  // Cylindrical U: x=256 (+Z FRONT), x=128 (-X Right outer), x=384 (+X Left outer), x=0/512 (-Z Back)
+  const grad = ctx.createLinearGradient(0, 108, 0, 512);
+  grad.addColorStop(0, pal.base);
+  grad.addColorStop(0.55, pal.bright);
+  grad.addColorStop(1, pal.deep);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 104, 512, 408);
+
+  // Dark halftone serpent graphic across hips & upper thighs
+  drawSerpentHalftone(ctx, 76, 212, 118, 390, pal.deep, 1.05);
+  drawSerpentHalftone(ctx, 300, 436, 118, 390, pal.deep, 1.05);
+
+  // Inner thigh black mesh gusset near lower front/back center
+  ctx.fillStyle = '#111216';
+  ctx.beginPath();
+  ctx.moveTo(234, 512);
+  ctx.lineTo(256, 365);
+  ctx.lineTo(278, 512);
+  ctx.closePath();
+  ctx.fill();
+
+  // White diagonal chevrons on right (-X, x≈132) & left (+X, x≈380) outer seams
+  drawDiagonalWhiteSlashes(ctx, 134, 175, 225, 1);
+  drawDiagonalWhiteSlashes(ctx, 378, 175, 225, -1);
+
+  // Right thigh (x≈168): vertical UFC + crypto.com hexagon
+  ctx.save();
+  ctx.translate(168, 258);
+  ctx.rotate(Math.PI / 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'italic 900 32px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('UFC', 0, 0);
+  ctx.restore();
+
+  drawCryptoComHexagon(ctx, 168, 396, 24);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 17px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('crypto.com', 168, 444);
+
+  // Left thigh (x≈344): Venum fang crest
+  drawVenumFangLogo(ctx, 344, 342, 1.15);
+
+  // Black textured waistband at top (y=0..108)
+  ctx.fillStyle = '#141519';
+  ctx.fillRect(0, 0, 512, 108);
+  ctx.fillStyle = pal.bandAccent;
+  for (let x = 0; x < 512; x += 14) {
+    for (let y = 10; y < 98; y += 16) {
+      if (Math.sin(x * 0.09 + y * 0.11) > 0.15) {
+        ctx.beginPath();
+        ctx.ellipse(x + ((y / 16) % 2) * 7, y, 5.5, 3.5, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  drawFrontUfcBeltShield(ctx, 256, 4, 106, 104, pal);
+
+  // Subtle hem stitch line
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.fillRect(0, 492, 512, 20);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.wrapS = THREE.RepeatWrapping;
   tex.needsUpdate = true;
   return tex;
 }
@@ -2005,7 +2351,11 @@ export function ensureCustomOrMixamoRig(rig: JointMap): void {
         rig.root.remove(rig.mixamo.skeletonRoot);
         rig.mixamo = null;
       }
-      const ctrl = createConorMixamoController(bundle, conorTemplate);
+      const ctrl = createConorMixamoController(
+        bundle,
+        conorTemplate,
+        rig.conorShortsMaterial,
+      );
       rig.root.add(ctrl.displayRoot);
       rig.pelvis.visible = false;
       rig.mixamo = ctrl;
@@ -2147,7 +2497,11 @@ export function buildFighterRig(
   });
   const neckTex = createNeckTexture(profile);
   const armTex = createArmSkinTexture(profile);
-  const shortsTex = createShortsTexture(profile);
+  const waistbandTex = createUfcWaistbandTexture(corner);
+  const pelvisShortsTex = createUfcPelvisShortsTexture(corner);
+  const shortsRightTex = createUfcThighShortsTexture(corner, 'right');
+  const shortsLeftTex = createUfcThighShortsTexture(corner, 'left');
+  const conorShortsTex = createConorUfcShortsTexture(corner);
   const skinBump = createSkinBumpTexture();
   if (!cachedSoftShadowTex) {
     cachedSoftShadowTex = createSoftShadowTexture();
@@ -2258,9 +2612,46 @@ export function buildFighterRig(
     metalness: 0.06,
   });
 
-  const shortsMat = new THREE.MeshStandardMaterial({
-    map: shortsTex,
+  const waistbandMat = new THREE.MeshStandardMaterial({
+    map: waistbandTex,
     color: 0xffffff,
+    roughness: 0.62,
+    metalness: 0.06,
+  });
+
+  const pelvisShortsMat = new THREE.MeshStandardMaterial({
+    map: pelvisShortsTex,
+    color: 0xffffff,
+    roughness: 0.68,
+    metalness: 0.04,
+  });
+
+  const shortsRightMat = new THREE.MeshStandardMaterial({
+    map: shortsRightTex,
+    color: 0xffffff,
+    roughness: 0.68,
+    metalness: 0.04,
+  });
+
+  const shortsLeftMat = new THREE.MeshStandardMaterial({
+    map: shortsLeftTex,
+    color: 0xffffff,
+    roughness: 0.68,
+    metalness: 0.04,
+  });
+
+  const conorShortsMat = new THREE.MeshStandardMaterial({
+    map: conorShortsTex,
+    color: 0xffffff,
+    roughness: 0.68,
+    metalness: 0.04,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+
+  const shortsSolidCapMat = new THREE.MeshStandardMaterial({
+    color: corner === 'red' ? 0xb5121a : 0x0a4999,
     roughness: 0.72,
     metalness: 0.04,
   });
@@ -2322,19 +2713,21 @@ export function buildFighterRig(
   pelvis.add(hipsVisual);
 
   const waistband = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.148, 0.152, 0.055, 24),
-    new THREE.MeshStandardMaterial({ color: 0x111216, roughness: 0.68 }),
+    new THREE.CylinderGeometry(0.151, 0.155, 0.062, 28),
+    waistbandMat,
   );
   waistband.position.y = 0.088;
-  waistband.scale.set(1.04, 1.0, 0.76);
+  waistband.rotation.y = Math.PI;
+  waistband.scale.set(1.06, 1.0, 0.78);
   hipsVisual.add(waistband);
 
   const pelvisMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.151, 0.156, 0.18, 24),
-    shortsMat,
+    new THREE.CylinderGeometry(0.153, 0.16, 0.19, 28),
+    pelvisShortsMat,
   );
-  pelvisMesh.position.y = -0.02;
-  pelvisMesh.scale.set(1.05, 1.0, 0.76);
+  pelvisMesh.position.y = -0.022;
+  pelvisMesh.rotation.y = Math.PI;
+  pelvisMesh.scale.set(1.07, 1.0, 0.78);
   pelvisMesh.castShadow = true;
   hipsVisual.add(pelvisMesh);
 
@@ -2730,16 +3123,17 @@ export function buildFighterRig(
     thigh.add(thighVisual);
 
     const hipCap = new THREE.Mesh(
-      new THREE.SphereGeometry(0.086, 16, 14),
-      shortsMat,
+      new THREE.SphereGeometry(0.091, 16, 14),
+      shortsSolidCapMat,
     );
     thighVisual.add(hipCap);
 
     const cuffMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.09, 0.084, 0.21, 20),
-      shortsMat,
+      new THREE.CylinderGeometry(0.093, 0.1, 0.225, 24),
+      side === -1 ? shortsLeftMat : shortsRightMat,
     );
-    cuffMesh.position.y = -0.095;
+    cuffMesh.position.y = -0.1;
+    cuffMesh.rotation.y = Math.PI;
     cuffMesh.castShadow = true;
     thighVisual.add(cuffMesh);
 
@@ -2855,7 +3249,11 @@ export function buildFighterRig(
   const bundle = getResolvedMixamoBundle();
   const conorTemplate = profile.id === 'mcgregor' ? getResolvedConorModel() : null;
   if (bundle && conorTemplate) {
-    const conorCtrl = createConorMixamoController(bundle, conorTemplate);
+    const conorCtrl = createConorMixamoController(
+      bundle,
+      conorTemplate,
+      conorShortsMat,
+    );
     mixamo = conorCtrl;
     customModelAttached = true;
     customDisplayRoot = conorCtrl.displayRoot;
@@ -2931,6 +3329,8 @@ export function buildFighterRig(
       rightLegVisual: rightLeg.shinVisual,
     },
     profileId: profile.id,
+    corner,
+    conorShortsMaterial: conorShortsMat,
     mixamo,
     mixamoAttached: false,
     customModelAttached,
@@ -3290,6 +3690,7 @@ export function applyFighterPose(
   let desiredMixamo: MixamoActionKind = 'none';
   const strikeId = state.currentStrike ?? null;
   const strikeSpec = strikeId ? STRIKES[strikeId] : null;
+  const isLowKick = strikeId === 'legKick' || strikeId === 'rearLegKick';
   const isHookStrike =
     strikeId === 'leadHook' ||
     strikeId === 'rearHook' ||
@@ -3303,13 +3704,23 @@ export function applyFighterPose(
     if (state.action === 'ko' && rig.mixamo.actions.knockedOut) {
       desiredMixamo = 'knockedOut';
     } else if (state.action === 'strike' && strikeSpec) {
-      if (strikeSpec.isKick && rig.mixamo.actions.mmaKick) {
+      if (isLowKick && rig.mixamo.actions.lowKick) {
+        desiredMixamo = 'lowKick';
+      } else if (strikeSpec.isKick && rig.mixamo.actions.mmaKick) {
         desiredMixamo = 'mmaKick';
       } else if (isHookStrike && rig.mixamo.actions.hookPunch) {
         desiredMixamo = 'hookPunch';
       } else if (rig.mixamo.actions.jabPunch) {
         desiredMixamo = 'jabPunch';
       }
+    } else if (
+      ((state.action === 'hitReact' && state.useUppercutReact) ||
+        (state.action === 'stunned' &&
+          state.useUppercutReact &&
+          state.actionTime < 0.52)) &&
+      rig.mixamo.actions.receivingUppercut
+    ) {
+      desiredMixamo = 'receivingUppercut';
     } else if (
       state.action === 'idle' &&
       (state.guard === 'high' || state.guard === 'low') &&
@@ -3323,6 +3734,9 @@ export function applyFighterPose(
       rig.mixamo.actions.walkNeutral
     ) {
       desiredMixamo = 'walkNeutral';
+    } else if (state.action === 'idle' && rig.mixamo.actions.walkGuard) {
+      // Keep standing idle continuously on Mixamo guard pose to avoid idle<->strike skeleton pops
+      desiredMixamo = 'walkGuard';
     } else if (rig.customModelAttached) {
       // Keep Conor's real skinned character model active across all combat states
       desiredMixamo = rig.mixamo.actions.walkGuard ? 'walkGuard' : 'walkNeutral';
@@ -3361,7 +3775,10 @@ export function applyFighterPose(
         );
         dY = -0.26 * p;
         rX = 0.22 * p;
-      } else if (state.action === 'hitReact') {
+      } else if (
+        state.action === 'hitReact' &&
+        desiredMixamo !== 'receivingUppercut'
+      ) {
         const p = Math.sin(
           Math.min(1, state.actionTime / Math.max(0.01, state.actionDuration)) *
             Math.PI,
@@ -3375,7 +3792,10 @@ export function applyFighterPose(
           dY = -0.08 * k;
           rX = 0.18 * k;
         }
-      } else if (state.action === 'stunned') {
+      } else if (
+        state.action === 'stunned' &&
+        desiredMixamo !== 'receivingUppercut'
+      ) {
         rZ = Math.sin(timeSec * 10.5) * 0.14;
         dY = -0.07;
       } else if (state.action === 'knockdown') {
@@ -3404,14 +3824,23 @@ export function applyFighterPose(
       const shouldTrigger =
         rig.mixamo.activeMode !== desiredMixamo ||
         ((desiredMixamo === 'mmaKick' ||
+          desiredMixamo === 'lowKick' ||
           desiredMixamo === 'jabPunch' ||
           desiredMixamo === 'hookPunch') &&
           (rig.lastMixamoStrikeId !== strikeId ||
-            state.actionTime < rig.lastMixamoActionTime - 0.02));
+            state.actionTime < rig.lastMixamoActionTime - 0.02)) ||
+        (desiredMixamo === 'receivingUppercut' &&
+          state.actionTime < rig.lastMixamoActionTime - 0.02);
 
       if (shouldTrigger) {
         if (desiredMixamo === 'knockedOut') {
           rig.mixamo.triggerKnockedOut();
+        } else if (desiredMixamo === 'receivingUppercut') {
+          const reactDur =
+            state.action === 'stunned' ? 0.52 : Math.max(0.38, state.actionDuration);
+          rig.mixamo.triggerReceivingUppercut(reactDur);
+        } else if (desiredMixamo === 'lowKick') {
+          rig.mixamo.triggerLowKick(state.actionDuration);
         } else if (desiredMixamo === 'mmaKick') {
           rig.mixamo.triggerMmaKick(state.actionDuration);
         } else if (desiredMixamo === 'hookPunch') {
@@ -3424,8 +3853,10 @@ export function applyFighterPose(
 
     rig.mixamo.update(dt);
 
-    if (rig.customModelAttached) {
+    if (rig.customModelAttached && rig.customDisplayRoot) {
       setFighterHeadHidden(rig, rig.customHeadHidden);
+      // Re-clamp Conor's tilted customDisplayRoot (e.g. duck / knockdown) to cage mat floor
+      rig.mixamo.groundToFloor(rig.customDisplayRoot, rig.root);
     }
 
     // Keep contact shadow disc directly beneath the Mixamo-animated hips
@@ -3443,16 +3874,47 @@ export function applyFighterPose(
     rig.lastMixamoActionTime = state.actionTime;
 
     const limbRate =
-      state.action === 'strike' || state.action === 'hitReact' || state.action === 'ko'
-        ? 38
-        : 20;
+      state.action === 'strike' ||
+      state.action === 'hitReact' ||
+      state.action === 'ko' ||
+      state.action === 'slipLeft' ||
+      state.action === 'slipRight' ||
+      state.action === 'pullBack' ||
+      state.action === 'duck'
+        ? 42
+        : 24;
     const bodyRate =
-      state.action === 'strike' || state.action === 'ko' || state.action === 'knockdown'
-        ? 26
-        : 15;
+      state.action === 'strike' ||
+      state.action === 'ko' ||
+      state.action === 'knockdown' ||
+      state.action === 'slipLeft' ||
+      state.action === 'slipRight' ||
+      state.action === 'pullBack' ||
+      state.action === 'duck'
+        ? 30
+        : 18;
     const alphaBody = 1 - Math.exp(-bodyRate * Math.min(dt, 0.05));
     const alphaLimbs = 1 - Math.exp(-limbRate * Math.min(dt, 0.05));
     interpolatePose(rig, target, alphaBody, alphaLimbs);
+
+    // Clamp procedural poses so feet/knees/head never dip beneath y = 0 cage mat
+    rig.root.updateMatrixWorld(true);
+    let minProcLift = 0;
+    const checkProcJoint = (obj: THREE.Object3D, clearance: number) => {
+      obj.getWorldPosition(_procFloorVec);
+      rig.root.worldToLocal(_procFloorVec);
+      const lift = clearance - _procFloorVec.y;
+      if (lift > minProcLift) minProcLift = lift;
+    };
+    checkProcJoint(rig.footL, 0.045);
+    checkProcJoint(rig.footR, 0.045);
+    checkProcJoint(rig.kneePivotL, 0.055);
+    checkProcJoint(rig.kneePivotR, 0.055);
+    checkProcJoint(rig.pelvis, 0.085);
+    checkProcJoint(rig.head, 0.11);
+    if (minProcLift > 0) {
+      rig.pelvis.position.y += minProcLift;
+    }
   }
 
   // Prolonged orange-to-red rocked emissive pulse across head & torso

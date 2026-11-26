@@ -10,6 +10,8 @@ export type MixamoClipKey =
   | 'walkNeutral'
   | 'walkGuard'
   | 'mmaKick'
+  | 'lowKick'
+  | 'receivingUppercut'
   | 'knockedOut';
 
 export type MixamoActionKind = 'none' | MixamoClipKey;
@@ -57,6 +59,20 @@ export const MIXAMO_ANIMATION_SOURCES: Record<MixamoClipKey, MixamoClipSource> =
     cdnUrl: 'https://cdn.jsdelivr.net/gh/portasd/AnimationsOFC6@main/Mma%20Kick.fbx',
     localUrl: '/assets/animations/Mma Kick.fbx',
     inPlace: false,
+  },
+  lowKick: {
+    key: 'lowKick',
+    clipName: 'LowKick',
+    cdnUrl: 'https://cdn.jsdelivr.net/gh/portasd/AnimationsOFC6@main/Mma%20Kick%20(2).fbx',
+    localUrl: '/assets/animations/Mma Kick (2).fbx',
+    inPlace: false,
+  },
+  receivingUppercut: {
+    key: 'receivingUppercut',
+    clipName: 'ReceivingUppercut',
+    cdnUrl: 'https://cdn.jsdelivr.net/gh/portasd/AnimationsOFC6@main/Receiving%20An%20Uppercut.fbx',
+    localUrl: '/assets/animations/Receiving An Uppercut.fbx',
+    inPlace: true,
   },
   knockedOut: {
     key: 'knockedOut',
@@ -112,11 +128,14 @@ export interface MixamoRigController {
   triggerJabPunch: (strikeDurationSec: number) => void;
   triggerHookPunch: (strikeDurationSec: number) => void;
   triggerMmaKick: (strikeDurationSec: number) => void;
+  triggerLowKick: (strikeDurationSec: number) => void;
+  triggerReceivingUppercut: (reactDurationSec: number) => void;
   triggerKnockedOut: () => void;
   playWalkNeutral: (speedScale?: number) => void;
   playWalkGuard: (speedScale?: number) => void;
   stop: () => void;
   update: (dt: number) => void;
+  groundToFloor: (liftTarget?: THREE.Object3D, floorRef?: THREE.Object3D | null) => void;
   dispose: () => void;
 }
 
@@ -300,6 +319,28 @@ export function getResolvedMixamoBundle(): MixamoClipBundle | null {
   return resolvedBundle;
 }
 
+function disposeUnusedFbxScene(root: THREE.Object3D) {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.geometry) {
+      mesh.geometry.dispose();
+    }
+    const mats = Array.isArray(mesh.material)
+      ? mesh.material
+      : mesh.material
+        ? [mesh.material]
+        : [];
+    for (const mat of mats) {
+      const m = mat as THREE.MeshStandardMaterial;
+      m.map?.dispose?.();
+      m.normalMap?.dispose?.();
+      m.roughnessMap?.dispose?.();
+      m.metalnessMap?.dispose?.();
+      mat.dispose?.();
+    }
+  });
+}
+
 export function preloadMixamoAnimations(): Promise<MixamoClipBundle | null> {
   if (resolvedBundle) return Promise.resolve(resolvedBundle);
   if (cachedBundlePromise) return cachedBundlePromise;
@@ -316,22 +357,45 @@ export function preloadMixamoAnimations(): Promise<MixamoClipBundle | null> {
         }),
       );
 
+      // Prefer a lightweight animation skeleton as templateRoot rather than the 19MB heavy FBX files
+      const preferredTemplateOrder: MixamoClipKey[] = [
+        'mmaKick',
+        'jabPunch',
+        'walkGuard',
+        'walkNeutral',
+        'hookPunch',
+        'knockedOut',
+        'lowKick',
+        'receivingUppercut',
+      ];
+      let templateKey: MixamoClipKey | null = null;
       let templateRoot: THREE.Group | null = null;
+      for (const pk of preferredTemplateOrder) {
+        const match = loadedEntries.find(([k, fbx]) => k === pk && Boolean(fbx));
+        if (match && match[1]) {
+          templateKey = match[0];
+          templateRoot = match[1];
+          break;
+        }
+      }
+
       const clips: Record<MixamoClipKey, THREE.AnimationClip | null> = {
         jabPunch: null,
         hookPunch: null,
         walkNeutral: null,
         walkGuard: null,
         mmaKick: null,
+        lowKick: null,
+        receivingUppercut: null,
         knockedOut: null,
       };
 
       for (const [key, fbx, src] of loadedEntries) {
         if (!fbx) continue;
-        if (!templateRoot) {
-          templateRoot = fbx;
-        }
         clips[key] = extractActiveMixamoClip(fbx, src.clipName, Boolean(src.inPlace));
+        if (key !== templateKey) {
+          disposeUnusedFbxScene(fbx);
+        }
       }
 
       if (!templateRoot) return null;
@@ -353,9 +417,82 @@ export function preloadMixamoAnimations(): Promise<MixamoClipBundle | null> {
   return cachedBundlePromise;
 }
 
+const _floorScanVec = new THREE.Vector3();
+
+interface FloorContactBoneSpec {
+  bone: THREE.Object3D;
+  clearance: number;
+}
+
+const FLOOR_CONTACT_BONE_RULES: ReadonlyArray<{
+  names: ReadonlyArray<string>;
+  clearance: number;
+}> = [
+  { names: ['LeftToe_End', 'RightToe_End', 'LeftToeBase', 'RightToeBase'], clearance: 0.024 },
+  { names: ['LeftFoot', 'RightFoot'], clearance: 0.032 },
+  { names: ['LeftLeg', 'RightLeg', 'LeftHand', 'RightHand'], clearance: 0.055 },
+  { names: ['Hips', 'Spine2', 'Head', 'HeadTop_End'], clearance: 0.09 },
+];
+
+function collectFloorContactBones(skeletonRoot: THREE.Object3D): FloorContactBoneSpec[] {
+  const entries: FloorContactBoneSpec[] = [];
+  const seen = new Set<THREE.Object3D>();
+  for (const rule of FLOOR_CONTACT_BONE_RULES) {
+    for (const rawName of rule.names) {
+      for (const cand of [`mixamorig${rawName}`, `mixamorig:${rawName}`, rawName]) {
+        const bone = skeletonRoot.getObjectByName(cand);
+        if (bone && !seen.has(bone)) {
+          seen.add(bone);
+          entries.push({ bone, clearance: rule.clearance });
+          break;
+        }
+      }
+    }
+  }
+  return entries;
+}
+
+function groundMixamoToFloor(
+  liftTarget: THREE.Object3D,
+  floorRef: THREE.Object3D | null,
+  contacts: FloorContactBoneSpec[],
+): void {
+  if (contacts.length === 0) return;
+  const savedY = liftTarget.position.y;
+  const isSameObj = floorRef === liftTarget || !floorRef;
+  if (isSameObj) {
+    liftTarget.position.y = 0;
+  } else {
+    // Only reset if grounding the skeleton root itself; caller owns explicit pose offsets if any
+    liftTarget.position.y = Math.max(0, savedY);
+  }
+  const refParent = floorRef ?? liftTarget.parent ?? liftTarget;
+  refParent.updateMatrixWorld(true);
+
+  const scaleComp = floorRef ? Math.max(0.75, Math.abs(floorRef.scale.y)) : 1;
+  let maxLift = 0;
+  for (let i = 0; i < contacts.length; i++) {
+    const entry = contacts[i];
+    entry.bone.getWorldPosition(_floorScanVec);
+    if (floorRef || liftTarget.parent) {
+      (floorRef ?? liftTarget.parent)!.worldToLocal(_floorScanVec);
+    }
+    const targetMinY = entry.clearance / scaleComp;
+    const needed = targetMinY - _floorScanVec.y;
+    if (needed > maxLift) maxLift = needed;
+  }
+
+  if (maxLift > 0) {
+    liftTarget.position.y += maxLift;
+    liftTarget.updateMatrixWorld(true);
+  } else if (isSameObj) {
+    liftTarget.updateMatrixWorld(true);
+  }
+}
+
 /**
- * Instantiates a cloned Mixamo skeleton (scale = 0.01) + AnimationMixer bound to all 6 clips
- * (Jab Punch, Neutral Walking, Walking with Guard Up, Knocked Out, Hook Punch, MMA Kick).
+ * Instantiates a cloned Mixamo skeleton (scale = 0.01) + AnimationMixer bound to all 8 clips
+ * (Jab Punch, Neutral Walking, Walking with Guard Up, Knocked Out, Hook Punch, MMA Kick, Low Kick, Uppercut Reaction).
  */
 export function createMixamoRigController(
   bundle: MixamoClipBundle,
@@ -365,6 +502,7 @@ export function createMixamoRigController(
   skeletonRoot.visible = false;
 
   const attachments = attachSegmentsToMixamoBones(skeletonRoot, {}, options);
+  const floorContacts = collectFloorContactBones(skeletonRoot);
   const mixer = new THREE.AnimationMixer(skeletonRoot);
 
   const actions: Record<MixamoClipKey, THREE.AnimationAction | null> = {
@@ -373,10 +511,21 @@ export function createMixamoRigController(
     walkNeutral: bundle.clips.walkNeutral ? mixer.clipAction(bundle.clips.walkNeutral) : null,
     walkGuard: bundle.clips.walkGuard ? mixer.clipAction(bundle.clips.walkGuard) : null,
     mmaKick: bundle.clips.mmaKick ? mixer.clipAction(bundle.clips.mmaKick) : null,
+    lowKick: bundle.clips.lowKick ? mixer.clipAction(bundle.clips.lowKick) : null,
+    receivingUppercut: bundle.clips.receivingUppercut
+      ? mixer.clipAction(bundle.clips.receivingUppercut)
+      : null,
     knockedOut: bundle.clips.knockedOut ? mixer.clipAction(bundle.clips.knockedOut) : null,
   };
 
-  for (const key of ['jabPunch', 'hookPunch', 'mmaKick', 'knockedOut'] as const) {
+  for (const key of [
+    'jabPunch',
+    'hookPunch',
+    'mmaKick',
+    'lowKick',
+    'receivingUppercut',
+    'knockedOut',
+  ] as const) {
     const a = actions[key];
     if (a) {
       a.setLoop(THREE.LoopOnce, 1);
@@ -410,7 +559,9 @@ export function createMixamoRigController(
     next.timeScale = timeScale;
     next.setEffectiveWeight(1);
     if (prev && prev !== next) {
-      prev.fadeOut(0.06);
+      prev.fadeOut(0.085);
+      next.fadeIn(0.085).play();
+    } else if (prevKey === key) {
       next.fadeIn(0.06).play();
     } else {
       for (const k of Object.keys(actions) as MixamoClipKey[]) {
@@ -419,6 +570,8 @@ export function createMixamoRigController(
       next.play();
     }
     mixer.update(0);
+    skeletonRoot.position.y = 0;
+    groundMixamoToFloor(skeletonRoot, skeletonRoot.parent, floorContacts);
   };
 
   const transitionToLoop = (key: 'walkNeutral' | 'walkGuard', timeScale: number) => {
@@ -441,15 +594,17 @@ export function createMixamoRigController(
     next.setEffectiveWeight(1);
 
     if (prev && prev !== next) {
-      prev.crossFadeTo(next, 0.12, false);
+      prev.crossFadeTo(next, 0.15, key === 'walkNeutral' || key === 'walkGuard');
       next.play();
     } else {
       for (const k of Object.keys(actions) as MixamoClipKey[]) {
         if (k !== key) actions[k]?.stop();
       }
-      next.fadeIn(0.1).play();
+      next.fadeIn(0.14).play();
     }
     mixer.update(0);
+    skeletonRoot.position.y = 0;
+    groundMixamoToFloor(skeletonRoot, skeletonRoot.parent, floorContacts);
   };
 
   const controller: MixamoRigController = {
@@ -483,6 +638,20 @@ export function createMixamoRigController(
         1.5 / Math.max(0.35, strikeDurationSec),
       );
     },
+    triggerLowKick(strikeDurationSec: number) {
+      transitionToOneShot(
+        'lowKick',
+        0.06,
+        1.16 / Math.max(0.32, strikeDurationSec),
+      );
+    },
+    triggerReceivingUppercut(reactDurationSec: number) {
+      transitionToOneShot(
+        'receivingUppercut',
+        0.08,
+        0.72 / Math.max(0.34, reactDurationSec),
+      );
+    },
     triggerKnockedOut() {
       transitionToOneShot('knockedOut', 1.25, 1.18);
     },
@@ -502,6 +671,13 @@ export function createMixamoRigController(
     update(dt: number) {
       if (controller.activeMode === 'none') return;
       mixer.update(dt);
+      skeletonRoot.position.y = 0;
+      groundMixamoToFloor(skeletonRoot, skeletonRoot.parent, floorContacts);
+    },
+    groundToFloor(liftTarget?: THREE.Object3D, floorRef?: THREE.Object3D | null) {
+      const target = liftTarget ?? skeletonRoot;
+      const ref = floorRef !== undefined ? floorRef : target.parent;
+      groundMixamoToFloor(target, ref, floorContacts);
     },
     dispose() {
       mixer.stopAllAction();
@@ -549,6 +725,7 @@ type ConorSkinBoneName = (typeof CONOR_SKIN_BONE_NAMES)[number];
 
 export interface ConorModelTemplate {
   geometry: THREE.BufferGeometry;
+  shortsGeometry: THREE.BufferGeometry | null;
   materials: THREE.MeshStandardMaterial[];
   textures: THREE.Texture[];
   skinComputed: boolean;
@@ -557,6 +734,7 @@ export interface ConorModelTemplate {
 export interface ConorMixamoController extends MixamoRigController {
   displayRoot: THREE.Group;
   skinnedMesh: THREE.SkinnedMesh;
+  shortsSkinnedMesh: THREE.SkinnedMesh | null;
   flashMaterials: THREE.MeshStandardMaterial[];
   headBone: THREE.Object3D | null;
   neckBone: THREE.Object3D | null;
@@ -957,10 +1135,92 @@ export function buildConorModelTemplateFromFbx(fbx: THREE.Group): ConorModelTemp
 
   return {
     geometry: geo,
+    shortsGeometry: null,
     materials,
     textures,
     skinComputed: false,
   };
+}
+
+function buildConorCornerShortsGeometry(
+  baseGeo: THREE.BufferGeometry,
+): THREE.BufferGeometry | null {
+  const posAttr = baseGeo.attributes.position as THREE.BufferAttribute;
+  const normAttr = baseGeo.attributes.normal as THREE.BufferAttribute;
+  const idxAttr = baseGeo.attributes.skinIndex as THREE.BufferAttribute;
+  const wtAttr = baseGeo.attributes.skinWeight as THREE.BufferAttribute;
+  if (!posAttr || !normAttr || !idxAttr || !wtAttr) return null;
+
+  const yMin = 0.655;
+  const yMax = 0.948;
+  const outPos: number[] = [];
+  const outNorm: number[] = [];
+  const outUv: number[] = [];
+  const outIdx: number[] = [];
+  const outWt: number[] = [];
+
+  for (let t = 0; t < posAttr.count; t += 3) {
+    const cy = (posAttr.getY(t) + posAttr.getY(t + 1) + posAttr.getY(t + 2)) / 3;
+    const cx = (posAttr.getX(t) + posAttr.getX(t + 1) + posAttr.getX(t + 2)) / 3;
+    if (cy < yMin || cy > yMax || Math.abs(cx) > 0.226) continue;
+
+    // Exclude any arm/wrist vertex that might reach close
+    let skipArm = false;
+    for (let k = 0; k < 3; k++) {
+      const vx = posAttr.getX(t + k);
+      const vy = posAttr.getY(t + k);
+      if (Math.abs(vx) > 0.232 || vy < yMin - 0.025 || vy > yMax + 0.025) {
+        skipArm = true;
+        break;
+      }
+    }
+    if (skipArm) continue;
+
+    const triU = [0, 0, 0];
+    for (let k = 0; k < 3; k++) {
+      const vx = posAttr.getX(t + k);
+      const vz = posAttr.getZ(t + k);
+      triU[k] = 0.5 + Math.atan2(vx, vz) / (Math.PI * 2);
+    }
+    // Unwrap back-seam (-Z) triangles cleanly
+    const uMax = Math.max(triU[0], triU[1], triU[2]);
+    const uMin = Math.min(triU[0], triU[1], triU[2]);
+    if (uMax - uMin > 0.5) {
+      for (let k = 0; k < 3; k++) {
+        if (triU[k] < 0.5) triU[k] += 1.0;
+      }
+    }
+
+    for (let k = 0; k < 3; k++) {
+      const vi = t + k;
+      const vx = posAttr.getX(vi);
+      const vy = posAttr.getY(vi);
+      const vz = posAttr.getZ(vi);
+      const nx = normAttr.getX(vi);
+      const ny = normAttr.getY(vi);
+      const nz = normAttr.getZ(vi);
+      // Push outward cleanly along normal (+ slight athletic hem flare below waist)
+      const hemT = 1 - clampVal((vy - yMin) / (yMax - yMin), 0, 1);
+      const offset = 0.0055 + hemT * 0.0045;
+      outPos.push(vx + nx * offset, vy + ny * offset, vz + nz * offset);
+      outNorm.push(nx, ny, nz);
+      const v = clampVal((vy - yMin) / (yMax - yMin), 0, 1);
+      outUv.push(triU[k], v);
+      outIdx.push(idxAttr.getX(vi), idxAttr.getY(vi), idxAttr.getZ(vi), idxAttr.getW(vi));
+      outWt.push(wtAttr.getX(vi), wtAttr.getY(vi), wtAttr.getZ(vi), wtAttr.getW(vi));
+    }
+  }
+
+  if (outPos.length === 0) return null;
+  const shortsGeo = new THREE.BufferGeometry();
+  shortsGeo.setAttribute('position', new THREE.Float32BufferAttribute(outPos, 3));
+  shortsGeo.setAttribute('normal', new THREE.Float32BufferAttribute(outNorm, 3));
+  shortsGeo.setAttribute('uv', new THREE.Float32BufferAttribute(outUv, 2));
+  shortsGeo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(outIdx, 4));
+  shortsGeo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(outWt, 4));
+  shortsGeo.computeBoundingBox();
+  shortsGeo.computeBoundingSphere();
+  return shortsGeo;
 }
 
 export function preloadConorMcgregorModel(): Promise<ConorModelTemplate | null> {
@@ -996,6 +1256,7 @@ export function preloadConorMcgregorModel(): Promise<ConorModelTemplate | null> 
 export function createConorMixamoController(
   bundle: MixamoClipBundle,
   conorTemplate: ConorModelTemplate,
+  shortsMaterial?: THREE.Material | null,
 ): ConorMixamoController {
   const displayRoot = new THREE.Group();
   displayRoot.name = 'ConorMcgregorDisplayRoot';
@@ -1029,6 +1290,7 @@ export function createConorMixamoController(
 
   if (!conorTemplate.skinComputed) {
     buildConorSkinningAttributes(conorTemplate.geometry, bones, boneIdx);
+    conorTemplate.shortsGeometry = buildConorCornerShortsGeometry(conorTemplate.geometry);
     conorTemplate.skinComputed = true;
   }
 
@@ -1047,6 +1309,18 @@ export function createConorMixamoController(
   const skeleton = new THREE.Skeleton(bones);
   skinnedMesh.bind(skeleton, skinnedMesh.matrixWorld);
 
+  let shortsSkinnedMesh: THREE.SkinnedMesh | null = null;
+  if (shortsMaterial && conorTemplate.shortsGeometry) {
+    shortsSkinnedMesh = new THREE.SkinnedMesh(conorTemplate.shortsGeometry, shortsMaterial);
+    shortsSkinnedMesh.name = 'ConorCornerShortsSkinnedMesh';
+    shortsSkinnedMesh.castShadow = true;
+    shortsSkinnedMesh.receiveShadow = true;
+    shortsSkinnedMesh.frustumCulled = false;
+    displayRoot.add(shortsSkinnedMesh);
+    shortsSkinnedMesh.bind(skeleton, skinnedMesh.matrixWorld);
+  }
+
+  const floorContacts = collectFloorContactBones(skeletonRoot);
   const mixer = new THREE.AnimationMixer(skeletonRoot);
   const actions: Record<MixamoClipKey, THREE.AnimationAction | null> = {
     jabPunch: bundle.clips.jabPunch ? mixer.clipAction(bundle.clips.jabPunch) : null,
@@ -1054,10 +1328,21 @@ export function createConorMixamoController(
     walkNeutral: bundle.clips.walkNeutral ? mixer.clipAction(bundle.clips.walkNeutral) : null,
     walkGuard: bundle.clips.walkGuard ? mixer.clipAction(bundle.clips.walkGuard) : null,
     mmaKick: bundle.clips.mmaKick ? mixer.clipAction(bundle.clips.mmaKick) : null,
+    lowKick: bundle.clips.lowKick ? mixer.clipAction(bundle.clips.lowKick) : null,
+    receivingUppercut: bundle.clips.receivingUppercut
+      ? mixer.clipAction(bundle.clips.receivingUppercut)
+      : null,
     knockedOut: bundle.clips.knockedOut ? mixer.clipAction(bundle.clips.knockedOut) : null,
   };
 
-  for (const key of ['jabPunch', 'hookPunch', 'mmaKick', 'knockedOut'] as const) {
+  for (const key of [
+    'jabPunch',
+    'hookPunch',
+    'mmaKick',
+    'lowKick',
+    'receivingUppercut',
+    'knockedOut',
+  ] as const) {
     const a = actions[key];
     if (a) {
       a.setLoop(THREE.LoopOnce, 1);
@@ -1100,7 +1385,9 @@ export function createConorMixamoController(
     next.timeScale = timeScale;
     next.setEffectiveWeight(1);
     if (prev && prev !== next) {
-      prev.fadeOut(0.06);
+      prev.fadeOut(0.085);
+      next.fadeIn(0.085).play();
+    } else if (prevKey === key) {
       next.fadeIn(0.06).play();
     } else {
       for (const k of Object.keys(actions) as MixamoClipKey[]) {
@@ -1109,6 +1396,8 @@ export function createConorMixamoController(
       next.play();
     }
     mixer.update(0);
+    skeletonRoot.position.y = 0;
+    groundMixamoToFloor(skeletonRoot, displayRoot.parent, floorContacts);
   };
 
   const transitionToLoop = (key: 'walkNeutral' | 'walkGuard', timeScale: number) => {
@@ -1131,20 +1420,23 @@ export function createConorMixamoController(
     next.setEffectiveWeight(1);
 
     if (prev && prev !== next) {
-      prev.crossFadeTo(next, 0.12, false);
+      prev.crossFadeTo(next, 0.15, true);
       next.play();
     } else {
       for (const k of Object.keys(actions) as MixamoClipKey[]) {
         if (k !== key) actions[k]?.stop();
       }
-      next.fadeIn(0.1).play();
+      next.fadeIn(0.14).play();
     }
     mixer.update(0);
+    skeletonRoot.position.y = 0;
+    groundMixamoToFloor(skeletonRoot, displayRoot.parent, floorContacts);
   };
 
   const controller: ConorMixamoController = {
     displayRoot,
     skinnedMesh,
+    shortsSkinnedMesh,
     flashMaterials: instanceMaterials,
     headBone,
     neckBone,
@@ -1179,6 +1471,20 @@ export function createConorMixamoController(
         1.5 / Math.max(0.35, strikeDurationSec),
       );
     },
+    triggerLowKick(strikeDurationSec: number) {
+      transitionToOneShot(
+        'lowKick',
+        0.06,
+        1.16 / Math.max(0.32, strikeDurationSec),
+      );
+    },
+    triggerReceivingUppercut(reactDurationSec: number) {
+      transitionToOneShot(
+        'receivingUppercut',
+        0.08,
+        0.72 / Math.max(0.34, reactDurationSec),
+      );
+    },
     triggerKnockedOut() {
       transitionToOneShot('knockedOut', 1.25, 1.18);
     },
@@ -1198,6 +1504,13 @@ export function createConorMixamoController(
     update(dt: number) {
       if (controller.activeMode === 'none') return;
       mixer.update(dt);
+      skeletonRoot.position.y = 0;
+      groundMixamoToFloor(skeletonRoot, displayRoot.parent, floorContacts);
+    },
+    groundToFloor(liftTarget?: THREE.Object3D, floorRef?: THREE.Object3D | null) {
+      const target = liftTarget ?? displayRoot;
+      const ref = floorRef !== undefined ? floorRef : displayRoot.parent;
+      groundMixamoToFloor(target, ref, floorContacts);
     },
     dispose() {
       mixer.stopAllAction();

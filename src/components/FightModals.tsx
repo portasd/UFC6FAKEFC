@@ -31,9 +31,11 @@ interface PauseModalProps {
   cameraPreset: CameraPreset;
   muted: boolean;
   touchEnabled: boolean;
+  quickStrikesEnabled: boolean;
   onSelectCameraPreset: (preset: CameraPreset) => void;
   onToggleMute: () => void;
   onToggleTouchEnabled: () => void;
+  onToggleQuickStrikes: () => void;
   onResume: () => void;
   onRestart: () => void;
   onReturnTitle: () => void;
@@ -44,9 +46,11 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   cameraPreset,
   muted,
   touchEnabled,
+  quickStrikesEnabled,
   onSelectCameraPreset,
   onToggleMute,
   onToggleTouchEnabled,
+  onToggleQuickStrikes,
   onResume,
   onRestart,
   onReturnTitle,
@@ -92,30 +96,45 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           </div>
         </div>
 
-        {/* Sound & Touch Quick Toggles */}
-        <div className="grid grid-cols-2 gap-2 mb-3.5 short:mb-2.5">
+        {/* Sound, Touch & Quick Strikes Quick Toggles */}
+        <div className="grid grid-cols-3 gap-1.5 mb-3.5 short:mb-2.5">
           <button
             type="button"
             onClick={onToggleMute}
-            className="py-2 px-2.5 bg-[#161922] hover:bg-[#1f2330] border border-white/15 text-xs font-semibold text-white flex items-center justify-center gap-1.5 cursor-pointer"
+            className="py-2 px-2 bg-[#161922] hover:bg-[#1f2330] border border-white/15 text-[11px] font-semibold text-white flex items-center justify-center gap-1 cursor-pointer"
           >
             {muted ? (
-              <VolumeX className="w-3.5 h-3.5 text-[#ff5d47]" aria-hidden="true" />
+              <VolumeX className="w-3.5 h-3.5 text-[#ff5d47] shrink-0" aria-hidden="true" />
             ) : (
-              <Volume2 className="w-3.5 h-3.5 text-[#10b981]" aria-hidden="true" />
+              <Volume2 className="w-3.5 h-3.5 text-[#10b981] shrink-0" aria-hidden="true" />
             )}
-            <span>{muted ? 'Sound Off' : 'Sound On'}</span>
+            <span className="truncate">{muted ? 'Sound Off' : 'Sound On'}</span>
           </button>
           <button
             type="button"
             onClick={onToggleTouchEnabled}
-            className="py-2 px-2.5 bg-[#161922] hover:bg-[#1f2330] border border-white/15 text-xs font-semibold text-white flex items-center justify-center gap-1.5 cursor-pointer"
+            className="py-2 px-2 bg-[#161922] hover:bg-[#1f2330] border border-white/15 text-[11px] font-semibold text-white flex items-center justify-center gap-1 cursor-pointer"
           >
             <Smartphone
-              className={`w-3.5 h-3.5 ${touchEnabled ? 'text-[#ff8e1c]' : 'text-white/50'}`}
+              className={`w-3.5 h-3.5 shrink-0 ${touchEnabled ? 'text-[#ff8e1c]' : 'text-white/50'}`}
               aria-hidden="true"
             />
-            <span>{touchEnabled ? 'Touch On' : 'Touch Off'}</span>
+            <span className="truncate">{touchEnabled ? 'Touch On' : 'Touch Off'}</span>
+          </button>
+          <button
+            type="button"
+            aria-pressed={quickStrikesEnabled}
+            onClick={onToggleQuickStrikes}
+            title="Toggle Body Hook, Head Kick & Low Kick quick buttons"
+            className={`py-2 px-2 border text-[11px] font-semibold flex items-center justify-center cursor-pointer ${
+              quickStrikesEnabled
+                ? 'bg-[#161922] hover:bg-[#1f2330] border-[#ff8e1c]/60 text-[#ff8e1c]'
+                : 'bg-[#111319] hover:bg-[#1f2330] border-white/15 text-white/55'
+            }`}
+          >
+            <span className="truncate">
+              {quickStrikesEnabled ? 'Quick Kicks On' : 'Quick Kicks Off'}
+            </span>
           </button>
         </div>
 
@@ -613,8 +632,8 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
                 </div>
               )}
 
-              {/* Row 1: Overlay Toggle + Show Button Labels */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* Row 1: Overlay Toggle + Show Button Labels + Quick Strike Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <div className="p-3 bg-[#161922] border border-white/10 flex items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wider text-white">
@@ -628,7 +647,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
                     type="button"
                     aria-pressed={touchEnabled}
                     onClick={onToggleTouchEnabled}
-                    className={`px-3 py-1.5 text-xs font-extrabold uppercase cursor-pointer border min-w-[64px] ${
+                    className={`px-3 py-1.5 text-xs font-extrabold uppercase cursor-pointer border min-w-[60px] ${
                       touchEnabled
                         ? 'bg-[#ff8e1c] border-[#ff8e1c] text-[#090a0d]'
                         : 'bg-[#0b0d12] border-white/25 text-white/75'
@@ -659,13 +678,45 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
                         },
                       })
                     }
-                    className={`px-3 py-1.5 text-xs font-extrabold uppercase cursor-pointer border min-w-[64px] ${
+                    className={`px-3 py-1.5 text-xs font-extrabold uppercase cursor-pointer border min-w-[60px] ${
                       settings.touch.showLabels
                         ? 'bg-[#10b981] border-[#10b981] text-[#090a0d]'
                         : 'bg-[#0b0d12] border-white/25 text-white/75'
                     }`}
                   >
                     {settings.touch.showLabels ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+
+                <div className="p-3 bg-[#161922] border border-white/10 flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-white">
+                      Quick Strike Buttons
+                    </div>
+                    <div className="text-[11px] text-white/55">
+                      Body Hook · Head Kick · Low Kick
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-pressed={settings.touch.showQuickStrikeButtons !== false}
+                    onClick={() =>
+                      onUpdateSettings({
+                        ...settings,
+                        touch: {
+                          ...settings.touch,
+                          showQuickStrikeButtons:
+                            settings.touch.showQuickStrikeButtons === false,
+                        },
+                      })
+                    }
+                    className={`px-3 py-1.5 text-xs font-extrabold uppercase cursor-pointer border min-w-[60px] ${
+                      settings.touch.showQuickStrikeButtons !== false
+                        ? 'bg-[#ff8e1c] border-[#ff8e1c] text-[#090a0d]'
+                        : 'bg-[#0b0d12] border-white/25 text-white/75'
+                    }`}
+                  >
+                    {settings.touch.showQuickStrikeButtons !== false ? 'ON' : 'OFF'}
                   </button>
                 </div>
               </div>

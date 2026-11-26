@@ -542,6 +542,10 @@ export class OctagonSceneManager {
   private menuFireRimLight: THREE.PointLight;
   private rockedLight: THREE.PointLight;
   private rockedLightTimer = 0;
+  private readonly tmpHeadWorld = new THREE.Vector3();
+  private readonly tmpDesiredPos = new THREE.Vector3();
+  private readonly tmpDesiredLook = new THREE.Vector3();
+  private readonly tmpFpHeadPos = new THREE.Vector3();
 
   private camPos = new THREE.Vector3(0.03, 1.48, 1.24);
   private camLook = new THREE.Vector3(0.2, 1.43, 0.2);
@@ -1724,7 +1728,7 @@ export class OctagonSceneManager {
             [0, this.rigRed],
             [1, this.rigBlue],
           ];
-          const headWorld = new THREE.Vector3();
+          const headWorld = this.tmpHeadWorld;
           for (const [idx, rig] of pairs) {
             const f = bout.fighters[idx];
             if (f.headCutSeverity >= 0.24 && f.action !== 'ko') {
@@ -1794,9 +1798,9 @@ export class OctagonSceneManager {
       mat.opacity = pulse > 0.965 ? 0.9 : 0;
     }
 
-    // Camera choreography
-    const desiredPos = new THREE.Vector3();
-    const desiredLook = new THREE.Vector3();
+    // Camera choreography (zero per-frame Vector3 allocations)
+    const desiredPos = this.tmpDesiredPos;
+    const desiredLook = this.tmpDesiredLook;
     let desiredFov = 42;
     let desiredNear = 0.1;
 
@@ -1871,7 +1875,7 @@ export class OctagonSceneManager {
         desiredLook.set(midX, 1.18, midZ);
         desiredFov = 38;
       } else if (this.cameraPreset === 'firstPerson') {
-        const headPos = new THREE.Vector3(
+        const headPos = this.tmpFpHeadPos.set(
           f0.x,
           1.48 * f0.profile.heightScale,
           f0.z,
@@ -1962,12 +1966,12 @@ export class OctagonSceneManager {
     } else {
       const dampLambda =
         isMenu || isSetup || isSelect
-          ? 6.5
+          ? 7.2
           : this.cameraPreset === 'firstPerson'
-            ? 16
+            ? 18
             : this.cameraPreset === 'thirdPerson'
-              ? 10.5
-              : 7.5;
+              ? 12
+              : 9.2;
       this.camPos.x = THREE.MathUtils.damp(this.camPos.x, desiredPos.x, dampLambda, dt);
       this.camPos.y = THREE.MathUtils.damp(this.camPos.y, desiredPos.y, dampLambda, dt);
       this.camPos.z = THREE.MathUtils.damp(this.camPos.z, desiredPos.z, dampLambda, dt);

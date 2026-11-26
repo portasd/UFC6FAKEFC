@@ -28,7 +28,9 @@ function getBaseSizePx(id: TouchControlId): number {
   ) {
     return 56;
   }
-  if (id === 'hook') return 48;
+  if (id === 'hook' || id === 'bodyHook' || id === 'headKick' || id === 'lowKick') {
+    return 48;
+  }
   return 44; // body / evade
 }
 
@@ -38,8 +40,12 @@ export const TouchLayoutEditor: React.FC<TouchLayoutEditorProps> = ({
   onCancel,
 }) => {
   const controlIds = useMemo(
-    () => getControlsForPreset(settings.preset),
-    [settings.preset],
+    () =>
+      getControlsForPreset(
+        settings.preset,
+        settings.showQuickStrikeButtons !== false,
+      ),
+    [settings.preset, settings.showQuickStrikeButtons],
   );
   const defaultPositions = useMemo(
     () => getDefaultTouchPositions(settings.preset, settings.handedness),

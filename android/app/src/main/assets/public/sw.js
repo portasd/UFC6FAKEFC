@@ -87,7 +87,7 @@ define(['./workbox-25613826'], (function (workbox) { 'use strict';
     "revision": "1386e2e12dcdbe27cdee8e989ae57e9f"
   }, {
     "url": "index.html",
-    "revision": "9481495bbc4c17e450805916d19c4db5"
+    "revision": "852d540431ce56a8655f7f6e4e5c9bcd"
   }, {
     "url": "icon.svg",
     "revision": "a5728f002966ea6e38e5c78932fbb142"
@@ -98,10 +98,10 @@ define(['./workbox-25613826'], (function (workbox) { 'use strict';
     "url": "assets/workbox-window.prod.es5-Bd17z0YL.js",
     "revision": null
   }, {
-    "url": "assets/index-BtcbX4sl.js",
+    "url": "assets/index-Dc5wvTp7.css",
     "revision": null
   }, {
-    "url": "assets/index-B4LYl2fB.css",
+    "url": "assets/index-CZ0hq_ZU.js",
     "revision": null
   }, {
     "url": "assets/faces/yan.png",
@@ -255,6 +255,12 @@ define(['./workbox-25613826'], (function (workbox) { 'use strict';
     "revision": null
   }, {
     "url": "assets/aistudio/image_c94e6796.png",
+    "revision": null
+  }, {
+    "url": "assets/aistudio/image_be46701d.png",
+    "revision": null
+  }, {
+    "url": "assets/aistudio/image_79d24a09.png",
     "revision": null
   }, {
     "url": "assets/aistudio/image_721756e8.png",

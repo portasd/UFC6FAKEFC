@@ -168,6 +168,7 @@ export interface FighterState {
   hitReactZone: TargetZone;
   hitReactSide: -1 | 0 | 1;
   hitReactIntensity: number;
+  useUppercutReact: boolean;
   koStyle: KoStyle;
   hitFlashTimer: number;
   rockedFlashTimer: number;
@@ -219,6 +220,70 @@ export const OCTAGON_RADIUS = 7.4;
 export const BOXING_RING_HALF_SIZE = 4.5;
 export const BACKYARD_HALF_SIZE = 4.6;
 
+export interface CardioProfile {
+  cardioNorm: number;
+  maxStamina: number;
+  strikeDrainMult: number;
+  evadeDrainMult: number;
+  whiffTaxFraction: number;
+  regenMult: number;
+  roundRecoveryFraction: number;
+  bodyDamageStamMult: number;
+  maxStaminaFloorRatio: number;
+  cumulativeDrainPerCost: number;
+}
+
+export function getCardioProfile(
+  cardio: number,
+  simulationMode: boolean,
+): CardioProfile {
+  const cardioNorm = clamp((cardio - 88) / 11, -1.15, 1.0);
+  if (!simulationMode) {
+    // Arcade mode: zero fatigue penalties, zero whiff tax, zero ceiling drain, uniform fast recovery
+    return {
+      cardioNorm: 0,
+      maxStamina: 100,
+      strikeDrainMult: 1.0,
+      evadeDrainMult: 1.0,
+      whiffTaxFraction: 0,
+      regenMult: 1.0,
+      roundRecoveryFraction: 0.8,
+      bodyDamageStamMult: 0,
+      maxStaminaFloorRatio: 1.0,
+      cumulativeDrainPerCost: 0,
+    };
+  }
+  return {
+    cardioNorm,
+    maxStamina: 100 + (cardio - 85) * 1.45,
+    strikeDrainMult: 1 - cardioNorm * 0.27,
+    evadeDrainMult: 1 - cardioNorm * 0.24,
+    whiffTaxFraction: 0.36 * (1 - cardioNorm * 0.35),
+    regenMult: 1 + cardioNorm * 0.36,
+    roundRecoveryFraction: 0.42 + cardioNorm * 0.14,
+    bodyDamageStamMult: 1 - cardioNorm * 0.22,
+    maxStaminaFloorRatio: 0.62 + cardioNorm * 0.1,
+    cumulativeDrainPerCost: 0.075 * (1 - cardioNorm * 0.32),
+  };
+}
+
+function spendStamina(
+  f: FighterState,
+  amount: number,
+  cardioProf: CardioProfile,
+): void {
+  const actualCost = Math.max(0, amount);
+  f.stamina = Math.max(0, f.stamina - actualCost);
+  if (cardioProf.cumulativeDrainPerCost > 0) {
+    const floor = cardioProf.maxStamina * cardioProf.maxStaminaFloorRatio;
+    f.maxStamina = Math.max(
+      floor,
+      f.maxStamina - actualCost * cardioProf.cumulativeDrainPerCost,
+    );
+    f.stamina = Math.min(f.stamina, f.maxStamina);
+  }
+}
+
 export function createFighterState(
   index: 0 | 1,
   profile: FighterProfile,
@@ -230,7 +295,7 @@ export function createFighterState(
   const maxHead = (100 + (profile.stats.chin - 85) * 1.1) * simVitalityMult;
   const maxBody = (100 + (profile.stats.cardio - 85) * 0.8) * simVitalityMult;
   const maxLeg = 100 + (profile.stats.chin - 85) * 0.6;
-  const maxStam = 100 + (profile.stats.cardio - 85) * 0.9;
+  const maxStam = getCardioProfile(profile.stats.cardio, simulationMode).maxStamina;
 
   return {
     index,
@@ -272,6 +337,7 @@ export function createFighterState(
     hitReactZone: 'head',
     hitReactSide: 0,
     hitReactIntensity: 0,
+    useUppercutReact: false,
     koStyle: 'backward',
     hitFlashTimer: 0,
     rockedFlashTimer: 0,
@@ -354,9 +420,12 @@ export function startStrike(
   f: FighterState,
   strikeId: StrikeId,
   moveZ = 0,
+  simulationMode = false,
 ): boolean {
   const spec = STRIKES[strikeId];
-  const minStam = spec.staminaCost * 0.45;
+  const cardioProf = getCardioProfile(f.profile.stats.cardio, simulationMode);
+  const strikeCost = spec.staminaCost * 0.55 * cardioProf.strikeDrainMult;
+  const minStam = strikeCost * 0.78;
   if (f.stamina < minStam) return false;
 
   const isCounterWindow = f.counterWindowTimer > 0;
@@ -386,12 +455,13 @@ export function startStrike(
     f.counterWindowTimer = 0;
   }
 
-  const staminaRatio = f.stamina / f.maxStamina;
+  const staminaRatio = f.stamina / Math.max(1, f.maxStamina);
   const dur = getStrikeDuration(
     spec,
     f.profile.stats.speed,
     staminaRatio,
     extraSpeed,
+    simulationMode,
   );
   f.action = 'strike';
   f.actionTime = 0;
@@ -408,18 +478,21 @@ export function startStrike(
   f.strikeLungeMult = lungeMult;
   f.lungeTimer = 0;
   f.strikesThrown += 1;
-  f.stamina = Math.max(0, f.stamina - spec.staminaCost * 0.55);
+  spendStamina(f, strikeCost, cardioProf);
   return true;
 }
 
 export function startEvade(
   f: FighterState,
   evadeType: EvadeType,
+  simulationMode = false,
 ): boolean {
-  if (f.stamina < 5.5) return false;
+  const cardioProf = getCardioProfile(f.profile.stats.cardio, simulationMode);
+  const evadeCost = 6.0 * cardioProf.evadeDrainMult;
+  if (f.stamina < Math.max(4.5, evadeCost * 0.85)) return false;
   if (
     f.action !== 'idle' &&
-    !(f.action === 'strike' && f.actionTime < 0.09)
+    !(f.action === 'strike' && f.actionTime < 0.11)
   ) {
     return false;
   }
@@ -427,13 +500,13 @@ export function startEvade(
   f.actionTime = 0;
   f.prevActionTime = 0;
   f.actionDuration =
-    evadeType === 'pullBack' ? 0.34 : evadeType === 'duck' ? 0.32 : 0.3;
+    evadeType === 'pullBack' ? 0.33 : evadeType === 'duck' ? 0.31 : 0.29;
   f.currentStrike = null;
   f.queuedStrike = null;
   f.queuedStrikeTimer = 0;
   f.guard = 'none';
   f.lungeTimer = 0;
-  f.stamina = Math.max(0, f.stamina - 6.0);
+  spendStamina(f, evadeCost, cardioProf);
   return true;
 }
 
@@ -449,7 +522,7 @@ export function generateAiInput(
 
   const diffCfg = DIFFICULTY_LEVELS[bout.difficulty] ?? DIFFICULTY_LEVELS.champion;
   const diffMult = diffCfg.diffMult;
-  const paceScale = bout.simulationMode ? 0.74 : 0.78;
+  const paceScale = bout.simulationMode ? 0.78 : 0.83;
   const aiDt = dt * paceScale;
 
   ai.aiThinkTimer -= aiDt;
@@ -480,10 +553,13 @@ export function generateAiInput(
   let requestedEvade: EvadeType | null = null;
   let requestedFeint = false;
 
-  if (ai.stamina < ai.maxStamina * 0.24) {
-    moveZ = -0.8;
-    guard = 'high';
-    return { moveX, moveZ, guard, requestedStrike, requestedEvade, requestedFeint };
+  if (bout.simulationMode) {
+    const lowStamThresh = ai.profile.stats.cardio < 85 ? 0.32 : 0.25;
+    if (ai.stamina < ai.maxStamina * lowStamThresh) {
+      moveZ = -0.8;
+      guard = 'high';
+      return { moveX, moveZ, guard, requestedStrike, requestedEvade, requestedFeint };
+    }
   }
 
   if (dist > ai.aiDesiredRange + 0.14) {
@@ -657,7 +733,7 @@ export function stepBout(
     const req = inputs[i].requestedStrike;
     if (req) {
       bout.fighters[i].queuedStrike = req;
-      bout.fighters[i].queuedStrikeTimer = 0.22;
+      bout.fighters[i].queuedStrikeTimer = 0.26;
     }
   }
 
@@ -683,7 +759,7 @@ export function stepBout(
     return events;
   }
 
-  const simPaceScale = bout.simulationMode ? 0.74 : 0.78;
+  const simPaceScale = bout.simulationMode ? 0.78 : 0.83;
   const timeScale = (bout.slowMoTimer > 0 ? 0.45 : 1.0) * simPaceScale;
   if (bout.slowMoTimer > 0) {
     bout.slowMoTimer = Math.max(0, bout.slowMoTimer - dt);
@@ -733,8 +809,16 @@ export function stepBout(
         f.queuedStrike = null;
         f.queuedStrikeTimer = 0;
         f.counterWindowTimer = 0;
+        f.useUppercutReact = false;
         f.guard = 'none';
-        f.stamina = Math.min(f.maxStamina, f.stamina + f.maxStamina * 0.45);
+        const roundCardio = getCardioProfile(
+          f.profile.stats.cardio,
+          bout.simulationMode,
+        );
+        f.stamina = Math.min(
+          f.maxStamina,
+          f.stamina + f.maxStamina * roundCardio.roundRecoveryFraction,
+        );
         f.blockHealth = Math.min(f.maxBlockHealth, f.blockHealth + 35);
         f.headHp = Math.min(f.maxHeadHp, f.headHp + (bout.simulationMode ? 14 : 10));
         f.bodyHp = Math.min(f.maxBodyHp, f.bodyHp + (bout.simulationMode ? 14 : 10));
@@ -759,12 +843,13 @@ export function stepBout(
     const f = bout.fighters[i];
     const opp = bout.fighters[i === 0 ? 1 : 0];
     const input = inputs[i];
+    const cardioProf = getCardioProfile(f.profile.stats.cardio, bout.simulationMode);
 
     const dx = opp.x - f.x;
     const dz = opp.z - f.z;
     const targetYaw = Math.atan2(dx, dz);
 
-    // Smooth auto-face opponent unless mid-knockdown/KO (stronger footwork tracking during early strike windup)
+    // Smooth auto-face opponent unless mid-knockdown/KO (responsive tracking during footwork & windup)
     if (f.action !== 'knockdown' && f.action !== 'ko') {
       const yawDiff = normalizeAngle(targetYaw - f.facingYaw);
       const strikeProgress =
@@ -772,7 +857,7 @@ export function stepBout(
           ? f.actionTime / f.actionDuration
           : 1;
       const turnRate =
-        f.action === 'strike' ? (strikeProgress < 0.35 ? 8.2 : 4.2) : 10.5;
+        f.action === 'strike' ? (strikeProgress < 0.35 ? 9.5 : 5.0) : 12.5;
       f.facingYaw = normalizeAngle(
         f.facingYaw + yawDiff * (1 - Math.exp(-turnRate * simDt)),
       );
@@ -801,10 +886,10 @@ export function stepBout(
       f.stunMeter = Math.max(0, f.stunMeter - 8 * simDt);
     }
 
-    // Input queueing: buffer newly requested strike for 220ms during active/recovery/evade frames
+    // Input queueing: buffer newly requested strike for 260ms during active/recovery/evade frames
     if (input.requestedStrike) {
       f.queuedStrike = input.requestedStrike;
-      f.queuedStrikeTimer = 0.22;
+      f.queuedStrikeTimer = 0.26;
     }
 
     // Advance current action timer (record prevActionTime for swept hit detection)
@@ -841,11 +926,19 @@ export function stepBout(
         } else if (
           f.queuedStrike &&
           progress >= spec.cancelAt &&
-          (spec.comboNext.includes(f.queuedStrike) || progress >= 0.72)
+          (spec.comboNext.includes(f.queuedStrike) || progress >= 0.65)
         ) {
+          // Whiff tax on missed strike if chaining late recovery without landing
+          if (!f.strikeHitRegistered && f.actionTime > normWindup) {
+            spendStamina(
+              f,
+              spec.staminaCost * cardioProf.whiffTaxFraction,
+              cardioProf,
+            );
+          }
           // Seamless combo blending directly from cancel window without resetting to idle
           const nextId = f.queuedStrike;
-          if (startStrike(f, nextId, input.moveZ)) {
+          if (startStrike(f, nextId, input.moveZ, bout.simulationMode)) {
             events.push({
               type: 'strikeStart',
               attackerIndex: f.index,
@@ -856,15 +949,34 @@ export function stepBout(
             f.queuedStrike = null;
             f.queuedStrikeTimer = 0;
           }
-        } else if (f.actionTime >= f.actionDuration) {
+        } else if (
+          input.guard !== 'none' &&
+          !f.queuedStrike &&
+          progress >= 0.76
+        ) {
+          // Responsive defensive block cancel out of late strike recovery
           f.action = 'idle';
           f.actionTime = 0;
           f.currentStrike = null;
+          f.useUppercutReact = false;
+        } else if (f.actionTime >= f.actionDuration) {
+          if (!f.strikeHitRegistered && cardioProf.whiffTaxFraction > 0) {
+            spendStamina(
+              f,
+              spec.staminaCost * cardioProf.whiffTaxFraction,
+              cardioProf,
+            );
+          }
+          f.action = 'idle';
+          f.actionTime = 0;
+          f.currentStrike = null;
+          f.useUppercutReact = false;
         }
       } else if (f.action === 'knockdown') {
         if (f.actionTime >= f.actionDuration) {
           f.action = 'idle';
           f.actionTime = 0;
+          f.useUppercutReact = false;
           f.headHp = Math.max(f.headHp, f.maxHeadHp * 0.28);
           f.bodyHp = Math.max(f.bodyHp, f.maxBodyHp * 0.35);
           f.stunMeter = 0;
@@ -885,26 +997,46 @@ export function stepBout(
           f.actionDuration < maxHoldDuration
         ) {
           f.actionDuration = Math.min(maxHoldDuration, f.actionDuration + simDt * 0.92);
-          f.stamina = Math.max(0, f.stamina - 4.5 * simDt);
+          spendStamina(f, 4.5 * cardioProf.evadeDrainMult * simDt, cardioProf);
         }
-        if (f.actionTime >= f.actionDuration) {
+        // Fluid evade-to-counter strike chain once past peak displacement
+        if (
+          f.queuedStrike &&
+          f.actionTime >= f.actionDuration * 0.72 &&
+          startStrike(f, f.queuedStrike, input.moveZ, bout.simulationMode)
+        ) {
+          events.push({
+            type: 'strikeStart',
+            attackerIndex: f.index,
+            defenderIndex: opp.index,
+            strikeId: f.currentStrike!,
+          });
+        } else if (f.actionTime >= f.actionDuration) {
           f.action = 'idle';
           f.actionTime = 0;
           f.currentStrike = null;
+          f.useUppercutReact = false;
         }
       } else if (f.actionTime >= f.actionDuration) {
         f.action = 'idle';
         f.actionTime = 0;
         f.currentStrike = null;
+        f.useUppercutReact = false;
       }
     }
 
     // Idle state: handle evades, lunges, queued/fresh strikes, blocking
     if (f.action === 'idle') {
       const nextStrike = f.queuedStrike;
-      if (input.requestedEvade && startEvade(f, input.requestedEvade)) {
+      if (
+        input.requestedEvade &&
+        startEvade(f, input.requestedEvade, bout.simulationMode)
+      ) {
         // Evade started
-      } else if (nextStrike && startStrike(f, nextStrike, input.moveZ)) {
+      } else if (
+        nextStrike &&
+        startStrike(f, nextStrike, input.moveZ, bout.simulationMode)
+      ) {
         events.push({
           type: 'strikeStart',
           attackerIndex: f.index,
@@ -916,7 +1048,7 @@ export function stepBout(
         f.lungeDirX = input.requestedLunge.x / mag;
         f.lungeDirZ = input.requestedLunge.z / mag;
         f.lungeTimer = 0.2;
-        f.stamina = Math.max(0, f.stamina - 4.8);
+        spendStamina(f, 4.8 * cardioProf.evadeDrainMult, cardioProf);
         f.guard = 'none';
         events.push({
           type: 'lunge',
@@ -924,26 +1056,29 @@ export function stepBout(
           defenderIndex: opp.index,
         });
       } else {
-        f.guard =
-          f.blockHealth > 4 && f.feintCooldown <= 0 ? input.guard : 'none';
+        // Keep guard raised whenever block is held (even if blockHealth is low/empty)
+        f.guard = f.feintCooldown <= 0 ? input.guard : 'none';
       }
     } else if (f.action === 'stunned' || f.action === 'hitReact') {
       // Allow raising, switching, or holding high/low guard while rocked or reacting to strikes
-      f.guard =
-        f.blockHealth > 4 && f.feintCooldown <= 0 ? input.guard : 'none';
-    } else if (f.action === 'strike' && input.requestedEvade && f.actionTime < 0.09) {
-      startEvade(f, input.requestedEvade);
+      f.guard = f.feintCooldown <= 0 ? input.guard : 'none';
+    } else if (f.action === 'strike' && input.requestedEvade && f.actionTime < 0.11) {
+      startEvade(f, input.requestedEvade, bout.simulationMode);
     }
 
-    // Stamina & block regeneration (Simulation Mode slightly slows stamina recovery)
-    const simStaminaRegenMult = bout.simulationMode ? 0.74 : 1.0;
+    // Stamina & block regeneration (no fatigue in Arcade; realistic cardio & body-wear in Simulation)
+    const simStaminaRegenMult = bout.simulationMode ? 0.64 : 1.0;
+    const guardRegenBase = bout.simulationMode ? 5.2 : 11.5;
+    const idleRegenBase = bout.simulationMode ? 16.5 : 22.0;
     const staminaRegenRate =
       (f.guard !== 'none'
-        ? 6.5
+        ? guardRegenBase * cardioProf.regenMult
         : f.action === 'idle' && f.lungeTimer <= 0
-          ? 16.5 * (0.8 + (f.profile.stats.cardio / 100) * 0.35)
+          ? idleRegenBase * cardioProf.regenMult
           : 0) * simStaminaRegenMult;
-    const bodyFactor = 0.55 + 0.45 * (f.bodyHp / f.maxBodyHp);
+    const bodyFactor = bout.simulationMode
+      ? 0.55 + 0.45 * (f.bodyHp / f.maxBodyHp)
+      : 1.0;
     f.stamina = clamp(
       f.stamina + staminaRegenRate * bodyFactor * simDt,
       0,
@@ -951,7 +1086,7 @@ export function stepBout(
     );
 
     if (f.guard === 'none' && (f.action === 'idle' || f.action === 'stunned')) {
-      const blockRegenRate = f.action === 'stunned' ? 10 : 18;
+      const blockRegenRate = f.action === 'stunned' ? 12 : 21;
       f.blockHealth = clamp(
         f.blockHealth + blockRegenRate * simDt,
         0,
@@ -959,32 +1094,38 @@ export function stepBout(
       );
     }
 
-    // Footwork & directional lunge velocity (deliberate, weighty pace; Simulation slows further)
+    // Footwork & directional lunge velocity (fluid weight transfer; fatigue affects low-gas mobility in Simulation)
     const fwdX = Math.sin(f.facingYaw);
     const fwdZ = Math.cos(f.facingYaw);
     const rightX = Math.cos(f.facingYaw);
     const rightZ = -Math.sin(f.facingYaw);
 
+    const stamRatioNow = f.stamina / Math.max(1, f.maxStamina);
+    const simFatigueMoveMult =
+      bout.simulationMode && stamRatioNow < 0.3
+        ? 0.84 + 0.16 * (stamRatioNow / 0.3)
+        : 1.0;
     const legMobility = 0.6 + 0.4 * (f.legHp / f.maxLegHp);
     const simMoveMult = bout.simulationMode ? 0.96 : 1.0;
     const baseMoveSpeed =
-      (1.42 + (f.profile.stats.speed - 85) * 0.012) *
+      (1.48 + (f.profile.stats.speed - 85) * 0.012) *
       legMobility *
       simMoveMult *
-      (f.guard !== 'none' ? 0.54 : 1.0) *
-      (f.action === 'stunned' ? 0.45 : 1.0);
+      simFatigueMoveMult *
+      (f.guard !== 'none' ? 0.56 : 1.0) *
+      (f.action === 'stunned' ? 0.48 : 1.0);
 
     if (f.lungeTimer > 0 && f.action === 'idle') {
-      const lungeSpeed = 3.25 * legMobility * simMoveMult;
+      const lungeSpeed = 3.35 * legMobility * simMoveMult * simFatigueMoveMult;
       const targetVx = (fwdX * f.lungeDirZ + rightX * f.lungeDirX) * lungeSpeed;
       const targetVz = (fwdZ * f.lungeDirZ + rightZ * f.lungeDirX) * lungeSpeed;
-      const snap = 1 - Math.exp(-20 * simDt);
+      const snap = 1 - Math.exp(-22 * simDt);
       f.vx += (targetVx - f.vx) * snap;
       f.vz += (targetVz - f.vz) * snap;
     } else if (f.action === 'idle' || f.action === 'stunned') {
       const targetVx = (fwdX * input.moveZ + rightX * input.moveX) * baseMoveSpeed;
       const targetVz = (fwdZ * input.moveZ + rightZ * input.moveX) * baseMoveSpeed;
-      const accel = 1 - Math.exp(-12 * simDt);
+      const accel = 1 - Math.exp(-15 * simDt);
       f.vx += (targetVx - f.vx) * accel;
       f.vz += (targetVz - f.vz) * accel;
     } else if (f.action === 'strike' && f.currentStrike) {
@@ -994,15 +1135,15 @@ export function stepBout(
         progress < 0.44 ? spec.lungeSpeed * f.strikeLungeMult : 0;
       const targetVx = fwdX * lungeMult;
       const targetVz = fwdZ * lungeMult;
-      const damp = 1 - Math.exp(-11 * simDt);
+      const damp = 1 - Math.exp(-13 * simDt);
       f.vx += (targetVx - f.vx) * damp;
       f.vz += (targetVz - f.vz) * damp;
     } else if (f.action === 'pullBack') {
-      const damp = 1 - Math.exp(-10 * simDt);
-      f.vx += (-fwdX * 1.05 - f.vx) * damp;
-      f.vz += (-fwdZ * 1.05 - f.vz) * damp;
-    } else {
       const damp = 1 - Math.exp(-12 * simDt);
+      f.vx += (-fwdX * 1.08 - f.vx) * damp;
+      f.vz += (-fwdZ * 1.08 - f.vz) * damp;
+    } else {
+      const damp = 1 - Math.exp(-14 * simDt);
       f.vx *= 1 - damp;
       f.vz *= 1 - damp;
     }
@@ -1225,9 +1366,22 @@ export function stepBout(
       }
     }
 
+    const atkCardio = getCardioProfile(
+      atk.profile.stats.cardio,
+      bout.simulationMode,
+    );
+    const defCardio = getCardioProfile(
+      def.profile.stats.cardio,
+      bout.simulationMode,
+    );
+
     if (cleanEvade) {
       // Clean head-movement evasion! Opens a 0.3s Pull-Counter window!
-      atk.stamina = Math.max(0, atk.stamina - spec.staminaCost * 0.35);
+      spendStamina(
+        atk,
+        spec.staminaCost * 0.35 * atkCardio.strikeDrainMult,
+        atkCardio,
+      );
       def.counterWindowTimer = 0.3;
       events.push({
         type: 'evaded',
@@ -1266,16 +1420,26 @@ export function stepBout(
       z: tz - dirZ * defenderRadius * 0.55,
     };
 
-    if (isProperBlock && def.blockHealth > 4 && !caughtLeaning) {
-      const chip = spec.blockChip * (0.9 + atk.profile.stats.power / 200);
+    if (isProperBlock && !caughtLeaning) {
+      const powerFactor = 0.9 + atk.profile.stats.power / 200;
+      // Guard stays raised even at low blockHealth (bleed-through damage without stun/rocked)
+      const blockAbsorbedClean = def.blockHealth > 4;
+      const chip = blockAbsorbedClean
+        ? spec.blockChip * powerFactor
+        : spec.baseDamage * 0.24 * powerFactor;
       if (spec.zone === 'head') def.headHp = Math.max(1, def.headHp - chip);
       else if (spec.zone === 'body') def.bodyHp = Math.max(1, def.bodyHp - chip);
       else def.legHp = Math.max(1, def.legHp - chip);
 
-      def.blockHealth = Math.max(0, def.blockHealth - spec.blockDrain);
-      def.vx += dirX * spec.knockback * 0.45;
-      def.vz += dirZ * spec.knockback * 0.45;
-      atk.stamina = Math.max(0, atk.stamina - spec.staminaCost * 0.25);
+      def.blockHealth = Math.max(0, def.blockHealth - spec.blockDrain * 0.85);
+      def.stunMeter = Math.max(0, def.stunMeter - 2);
+      def.vx += dirX * spec.knockback * (blockAbsorbedClean ? 0.45 : 0.6);
+      def.vz += dirZ * spec.knockback * (blockAbsorbedClean ? 0.45 : 0.6);
+      spendStamina(
+        atk,
+        spec.staminaCost * 0.25 * atkCardio.strikeDrainMult,
+        atkCardio,
+      );
 
       events.push({
         type: 'blocked',
@@ -1308,7 +1472,11 @@ export function stepBout(
       : isGuardMistake
         ? 1.15
         : 1.0;
-    const fatigueMult = staminaRatio < 0.2 ? 0.78 : 1.0;
+    const fatigueFloor = 0.72;
+    const fatigueMult =
+      !bout.simulationMode || staminaRatio >= 0.3
+        ? 1.0
+        : fatigueFloor + (1 - fatigueFloor) * (staminaRatio / 0.3);
     const dmg =
       spec.baseDamage *
       powerScale *
@@ -1344,7 +1512,13 @@ export function stepBout(
       }
     } else if (spec.zone === 'body') {
       def.bodyHp = Math.max(0, def.bodyHp - dmg);
-      def.stamina = Math.max(0, def.stamina - dmg * 0.55);
+      if (bout.simulationMode && defCardio.bodyDamageStamMult > 0) {
+        spendStamina(
+          def,
+          dmg * 0.55 * defCardio.bodyDamageStamMult,
+          defCardio,
+        );
+      }
       def.bodyBruiseSeverity = clamp(
         def.bodyBruiseSeverity + (dmg / 110) * 1.15,
         0,
@@ -1380,9 +1554,11 @@ export function stepBout(
     def.vx += dirX * spec.knockback * (isVulnerabilityHit ? 1.42 : 1.0);
     def.vz += dirZ * spec.knockback * (isVulnerabilityHit ? 1.42 : 1.0);
 
-    const stunAdd =
+    const isHoldingBlock = def.guard !== 'none';
+    const rawStunAdd =
       spec.stunPower * (isVulnerabilityHit ? 1.65 : 1.0) +
       (caughtLeaning ? 16 : wasDefStriking ? 10 : 0);
+    const stunAdd = isHoldingBlock ? rawStunAdd * 0.2 : rawStunAdd;
     def.stunMeter += stunAdd;
 
     const isHeavy = dmg >= 14 || isVulnerabilityHit;
@@ -1484,12 +1660,16 @@ export function stepBout(
       }
     }
 
-    // Stunned / Rocked stumble reaction (vulnerability catch accelerates rocked stun threshold)
+    // Stunned / Rocked stumble reaction (never triggers while holding block!)
     const stunThreshold = isVulnerabilityHit ? 32 : 38;
-    const forceRocked =
-      caughtLeaning && dmg >= 18;
+    const forceRocked = caughtLeaning && dmg >= 18;
+    const canRockDefender = !isHoldingBlock || caughtLeaning;
 
-    if ((def.stunMeter >= stunThreshold || forceRocked) && def.action !== 'stunned') {
+    if (
+      canRockDefender &&
+      (def.stunMeter >= stunThreshold || forceRocked) &&
+      def.action !== 'stunned'
+    ) {
       def.action = 'stunned';
       def.actionTime = 0;
       def.actionDuration = 1.85;
@@ -1499,6 +1679,7 @@ export function stepBout(
       def.stunMeter = 12;
       def.blockHealth = Math.max(def.blockHealth, 24);
       def.rockedFlashTimer = 2.35;
+      def.useUppercutReact = spec.zone === 'head' && Math.random() < 0.42;
       bout.rockedFlashTimer = 2.35;
       bout.calloutText = 'ROCKED!';
       bout.calloutTimer = 1.65;
@@ -1514,9 +1695,18 @@ export function stepBout(
       });
     } else if (def.action !== 'stunned') {
       if (isHeavy || def.action === 'idle' || caughtLeaning) {
+        const uppercutEligible =
+          isHeavy &&
+          (spec.zone === 'head' ||
+            spec.id === 'leadUppercut' ||
+            spec.id === 'rearUppercut' ||
+            spec.id === 'overhand' ||
+            spec.id === 'leadHook' ||
+            spec.id === 'rearHook');
+        def.useUppercutReact = uppercutEligible && Math.random() < 0.42;
         def.action = 'hitReact';
         def.actionTime = 0;
-        def.actionDuration = isHeavy ? 0.28 : 0.19;
+        def.actionDuration = def.useUppercutReact ? 0.46 : isHeavy ? 0.28 : 0.19;
         def.currentStrike = null;
         def.hitReactZone = spec.zone;
         def.hitReactSide = hitFromLeft ? -1 : 1;

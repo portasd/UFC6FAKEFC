@@ -33,7 +33,10 @@ export type TouchControlId =
   | 'rearPunch'
   | 'leadKick'
   | 'rearKick'
-  | 'hook';
+  | 'hook'
+  | 'bodyHook'
+  | 'headKick'
+  | 'lowKick';
 
 export interface TouchControlPosition {
   x: number; // Normalized viewport horizontal center (0.06 .. 0.94)
@@ -55,6 +58,7 @@ export interface TouchControlSettings {
   stickLunge: boolean;
   modifierBehavior: ModifierBehavior;
   showLabels: boolean;
+  showQuickStrikeButtons: boolean;
   customPositions?: Partial<Record<TouchControlId, TouchControlPosition>>;
   customScales?: Partial<Record<TouchControlId, number>>;
 }
@@ -109,24 +113,32 @@ export const TOUCH_CONTROL_META: Record<
   leadKick: { label: 'Lead Kick', shortLabel: 'L.KICK', accent: '#54a6ff' },
   rearKick: { label: 'Rear Kick', shortLabel: 'R.KICK', accent: '#54a6ff' },
   hook: { label: 'Hook Modifier', shortLabel: 'HOOK', accent: '#ff5d47' },
+  bodyHook: { label: 'Body Hook', shortLabel: 'B.HOOK', accent: '#ff8e1c' },
+  headKick: { label: 'Head Kick', shortLabel: 'H.KICK', accent: '#ff5d47' },
+  lowKick: { label: 'Low Kick', shortLabel: 'LOW.K', accent: '#54a6ff' },
 };
 
 export function getControlsForPreset(
   preset: TouchLayoutPreset,
+  includeQuickStrikes = true,
 ): TouchControlId[] {
-  return preset === 'fourLimb'
-    ? [
-        'stick',
-        'leadPunch',
-        'rearPunch',
-        'leadKick',
-        'rearKick',
-        'block',
-        'hook',
-        'body',
-        'evade',
-      ]
-    : ['stick', 'heavy', 'punch', 'kick', 'block', 'body', 'evade'];
+  const base: TouchControlId[] =
+    preset === 'fourLimb'
+      ? [
+          'stick',
+          'leadPunch',
+          'rearPunch',
+          'leadKick',
+          'rearKick',
+          'block',
+          'hook',
+          'body',
+          'evade',
+        ]
+      : ['stick', 'heavy', 'punch', 'kick', 'block', 'body', 'evade'];
+  return includeQuickStrikes
+    ? [...base, 'headKick', 'bodyHook', 'lowKick']
+    : base;
 }
 
 export function clampTouchPosition(
@@ -156,6 +168,9 @@ export function getDefaultTouchPositions(
           hook: { x: 0.72, y: 0.47 },
           body: { x: 0.71, y: 0.84 },
           evade: { x: 0.8, y: 0.65 },
+          headKick: { x: 0.62, y: 0.52 },
+          bodyHook: { x: 0.6, y: 0.68 },
+          lowKick: { x: 0.61, y: 0.84 },
           heavy: { x: 0.88, y: 0.45 },
           punch: { x: 0.9, y: 0.66 },
           kick: { x: 0.8, y: 0.84 },
@@ -168,6 +183,9 @@ export function getDefaultTouchPositions(
           block: { x: 0.73, y: 0.63 },
           body: { x: 0.71, y: 0.84 },
           evade: { x: 0.78, y: 0.45 },
+          headKick: { x: 0.63, y: 0.53 },
+          bodyHook: { x: 0.61, y: 0.69 },
+          lowKick: { x: 0.61, y: 0.85 },
           leadPunch: { x: 0.81, y: 0.48 },
           rearPunch: { x: 0.9, y: 0.54 },
           leadKick: { x: 0.81, y: 0.82 },
@@ -249,6 +267,7 @@ export const DEFAULT_CONTROL_SETTINGS: ControlSettings = {
     stickLunge: true,
     modifierBehavior: 'toggle',
     showLabels: true,
+    showQuickStrikeButtons: true,
     customPositions: {},
     customScales: {},
   },

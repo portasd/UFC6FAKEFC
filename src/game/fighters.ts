@@ -276,7 +276,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 98,
       speed: 94,
       chin: 92,
-      cardio: 90,
+      cardio: 89,
       kickPower: 92,
     },
     appearance: {
@@ -520,7 +520,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 96,
       speed: 93,
       chin: 88,
-      cardio: 82,
+      cardio: 77,
       kickPower: 91,
     },
     appearance: {
@@ -874,7 +874,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 96,
       speed: 93,
       chin: 92,
-      cardio: 89,
+      cardio: 85,
       kickPower: 87,
     },
     appearance: {
@@ -1259,7 +1259,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 99,
       speed: 87,
       chin: 97,
-      cardio: 86,
+      cardio: 80,
       kickPower: 95,
     },
     appearance: {
@@ -1633,7 +1633,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 94,
       speed: 92,
       chin: 91,
-      cardio: 89,
+      cardio: 85,
       kickPower: 91,
     },
     appearance: {
@@ -1823,7 +1823,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 96,
       speed: 93,
       chin: 88,
-      cardio: 86,
+      cardio: 81,
       kickPower: 91,
     },
     appearance: {
@@ -2153,7 +2153,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 95,
       speed: 88,
       chin: 94,
-      cardio: 87,
+      cardio: 83,
       kickPower: 95,
     },
     appearance: {
@@ -2248,7 +2248,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 95,
       speed: 90,
       chin: 89,
-      cardio: 91,
+      cardio: 88,
       kickPower: 91,
     },
     appearance: {
@@ -2294,7 +2294,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 96,
       speed: 91,
       chin: 92,
-      cardio: 89,
+      cardio: 85,
       kickPower: 97,
     },
     appearance: {
@@ -2434,7 +2434,7 @@ export const UFC_ROSTER: FighterProfile[] = [
       power: 99,
       speed: 88,
       chin: 91,
-      cardio: 86,
+      cardio: 79,
       kickPower: 86,
     },
     appearance: {
